@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+.login {
+  --verde: #08940c;
+  --verde-oscuro: #067a0a;
+  --verde-profundo: #04510a;
+  --texto: #14201a;
+  --texto-suave: #5f6b64;
+  --borde: #dfe6e1;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: #fff;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  color: var(--texto);
+}
+.login * { box-sizing: border-box; }
+.login h1, .login h2, .login p { margin: 0; }
+
+/* ---------- Panel verde de marca ---------- */
+.login-marca {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  padding: 48px 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(150deg, var(--verde) 0%, var(--verde-oscuro) 45%, var(--verde-profundo) 100%);
+}
+.login-marca::before,
+.login-marca::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .07);
+}
+.login-marca::before { width: 420px; height: 420px; right: -140px; top: -120px; }
+.login-marca::after  { width: 300px; height: 300px; left: -100px; bottom: -110px; }
+.login-marca > * { position: relative; z-index: 1; }
+
+.login-logo { display: flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 800; }
+.login-logo-icono {
+  width: 42px; height: 42px; border-radius: 12px;
+  background: #fff; color: var(--verde);
+  display: grid; place-items: center; font-weight: 800;
+}
+
+.login-mensaje h1 { font-size: 40px; line-height: 1.15; font-weight: 800; max-width: 440px; letter-spacing: -.02em; }
+.login-mensaje p { margin-top: 16px; font-size: 17px; opacity: .9; max-width: 400px; line-height: 1.5; }
+.login-mensaje ul { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 12px; }
+.login-mensaje li { display: flex; align-items: center; gap: 12px; font-weight: 500; }
+.login-mensaje li span {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(255, 255, 255, .2);
+  display: grid; place-items: center; font-size: 13px;
+}
+.login-marca small { opacity: .75; }
+
+/* ---------- Formulario ---------- */
+.login-panel { display: grid; place-items: center; padding: 32px 24px; }
+.login-form { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 20px; }
+.login-form h2 { font-size: 28px; font-weight: 800; letter-spacing: -.01em; }
+.login-sub { color: var(--texto-suave); margin-top: 8px !important; }
+.login-logo-movil { display: none; color: var(--texto); }
+.login-logo-movil .login-logo-icono { background: var(--verde); color: #fff; }
+
+.campo { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-weight: 600; }
+.campo-input {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; height: 50px;
+  border: 1.5px solid var(--borde); border-radius: 12px;
+  color: var(--texto-suave);
+  transition: border-color .2s, box-shadow .2s;
+}
+.campo-input:focus-within {
+  border-color: var(--verde);
+  box-shadow: 0 0 0 4px rgba(8, 148, 12, .12);
+  color: var(--verde);
+}
+.campo-input input {
+  flex: 1; min-width: 0;
+  border: 0; outline: 0; background: transparent;
+  font: inherit; font-weight: 400; font-size: 15px; color: var(--texto);
+}
+.ver-clave {
+  border: 0; background: none; padding: 4px; cursor: pointer;
+  color: var(--verde); font: inherit; font-weight: 600; font-size: 13px;
+}
+
+.login-error {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border-radius: 12px;
+  background: #fdecea; color: #d93025;
+  font-size: 14px; font-weight: 500;
+}
+
+.login-boton {
+  height: 50px; margin-top: 4px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--verde); color: #fff;
+  font: inherit; font-size: 16px; font-weight: 700;
+  box-shadow: 0 8px 20px rgba(8, 148, 12, .28);
+  transition: background .2s, transform .1s;
+}
+.login-boton:hover { background: var(--verde-oscuro); }
+.login-boton:active { transform: scale(.98); }
+.login-boton:disabled { opacity: .7; cursor: wait; }
+
+.login-ayuda { text-align: center; color: var(--texto-suave); font-size: 13px; }
+
+.spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, .4); border-top-color: #fff;
+  animation: girar .7s linear infinite;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* ---------- Celular ---------- */
+@media (max-width: 900px) {
+  .login { grid-template-columns: 1fr; }
+  .login-marca { display: none; }
+  .login-logo-movil { display: flex; }
+}
