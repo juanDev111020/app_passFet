@@ -19,7 +19,10 @@ export default function Login() {
     setEnviando(true)
     try {
       const user = await login(email, password)
-      navigate(user.rol === 'admin' ? '/admin/dashboard' : '/estudiante/pase')
+      const rol = user.rol?.toLowerCase()
+      if (rol === 'admin') navigate('/admin/dashboard')
+      else if (rol === 'empresario') navigate('/empresario/dashboard')
+      else navigate('/estudiante/pase')
     } catch (err) {
       if (!err.response) setError('No se pudo conectar con el servidor.')
       else if (err.response.status === 422) setError(Object.values(err.response.data.errors)[0][0])

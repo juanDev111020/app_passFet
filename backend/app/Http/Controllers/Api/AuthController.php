@@ -36,6 +36,12 @@ class AuthController extends Controller
 
         $token = $user->createToken('passfet')->plainTextToken;
 
+        if ($user->rol === 'estudiante') {
+            $user->load(['estudiante.programa', 'estudiante.pase', 'estudiante.experiencias.evidencias']);
+        } elseif ($user->rol === 'empresario') {
+            $user->load(['empresario.pasantias.estudiante.user']);
+        }
+
         return response()->json([
             'message' => 'Inicio de sesión exitoso.',
             'token'   => $token,
@@ -46,7 +52,14 @@ class AuthController extends Controller
     // GET /api/auth/me
     public function me(Request $request)
     {
-        return response()->json(['user' => $request->user()]);
+        $user = $request->user();
+        if ($user->rol === 'estudiante') {
+            $user->load(['estudiante.programa', 'estudiante.pase', 'estudiante.experiencias.evidencias']);
+        } elseif ($user->rol === 'empresario') {
+            $user->load(['empresario.pasantias.estudiante.user']);
+        }
+
+        return response()->json(['user' => $user]);
     }
 
     // POST /api/auth/logout

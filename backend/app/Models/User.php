@@ -13,7 +13,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'nombres', 'apellidos', 'numero_documento', 'email',
-        'password', 'rol', 'activo', 'ultimo_acceso',
+        'password', 'rol', 'activo', 'firma_digital', 'ultimo_acceso',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -25,5 +25,15 @@ class User extends Authenticatable
             'ultimo_acceso' => 'datetime',
             'password'      => 'hashed',
         ];
+    }
+
+    public function estudiante()
+    {
+        return $this->hasOne(Estudiante::class);
+    }
+
+    public function empresario()
+    {
+        return $this->hasOne(Empresario::class);
     }
 }

@@ -1,1 +1,8 @@
-   body { margin: 0; font-family: 'Segoe UI', sans-serif; }
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
