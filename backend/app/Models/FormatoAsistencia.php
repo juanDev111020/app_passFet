@@ -16,8 +16,11 @@ class FormatoAsistencia extends Model
         'actividades_realizadas',
         'evidencia_url',
         'check_habilitado',
+        'check_docente',
         'firma_empresario_url',
+        'firma_docente_url',
         'fecha_firma',
+        'fecha_firma_docente',
         'observaciones',
         'estado',
     ];
@@ -25,9 +28,11 @@ class FormatoAsistencia extends Model
     protected function casts(): array
     {
         return [
-            'check_habilitado' => 'boolean',
-            'fecha_registro'   => 'date',
-            'fecha_firma'      => 'datetime',
+            'check_habilitado'    => 'boolean',
+            'check_docente'       => 'boolean',
+            'fecha_registro'      => 'date',
+            'fecha_firma'         => 'datetime',
+            'fecha_firma_docente' => 'datetime',
         ];
     }
 

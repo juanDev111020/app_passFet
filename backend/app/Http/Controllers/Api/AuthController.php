@@ -14,12 +14,13 @@ class AuthController extends Controller
     {
         $request->validate([
             'email'    => 'required|email',
-            'password' => 'required|min:6',
+            'password' => 'required|string|min:8|max:20',
         ], [
             'email.required'    => 'El correo es obligatorio.',
             'email.email'       => 'El correo no es válido.',
             'password.required' => 'La contraseña es obligatoria.',
-            'password.min'      => 'La contraseña debe tener mínimo 6 caracteres.',
+            'password.min'      => 'La contraseña debe tener mínimo 8 caracteres.',
+            'password.max'      => 'La contraseña no puede superar 20 caracteres.',
         ]);
 
         $user = User::where('email', $request->email)->first();

@@ -67,15 +67,83 @@ class PerfilController extends Controller
         ]);
     }
 
+    /**
+     * Procesa una imagen ajustando EXIF y aplicando rotación si se solicita.
+     */
+    private function procesarYGuardarImagen($archivo, string $carpeta, string $prefijo, int $gradosAdicionales = 0): string
+    {
+        $extension = strtolower($archivo->getClientOriginalExtension());
+        $tempPath = $archivo->getRealPath();
+
+        $nombre = $prefijo . '_' . uniqid() . '_' . time() . '.png';
+        $destinoRelativo = $carpeta . '/' . $nombre;
+        $destinoCompleto = storage_path('app/public/' . $destinoRelativo);
+
+        if (!is_dir(dirname($destinoCompleto))) {
+            mkdir(dirname($destinoCompleto), 0755, true);
+        }
+
+        $img = null;
+        switch ($extension) {
+            case 'jpg':
+            case 'jpeg':
+                $img = @imagecreatefromjpeg($tempPath);
+                if ($img && function_exists('exif_read_data')) {
+                    $exif = @exif_read_data($tempPath);
+                    if (!empty($exif['Orientation'])) {
+                        switch ($exif['Orientation']) {
+                            case 3:
+                                $img = imagerotate($img, 180, 0);
+                                break;
+                            case 6:
+                                $img = imagerotate($img, -90, 0);
+                                break;
+                            case 8:
+                                $img = imagerotate($img, 90, 0);
+                                break;
+                        }
+                    }
+                }
+                break;
+            case 'png':
+                $img = @imagecreatefrompng($tempPath);
+                break;
+            case 'webp':
+                $img = @imagecreatefromwebp($tempPath);
+                break;
+            default:
+                $img = @imagecreatefromstring(file_get_contents($tempPath));
+                break;
+        }
+
+        if (!$img) {
+            $path = $archivo->storeAs($carpeta, $nombre, 'public');
+            return '/storage/' . $path;
+        }
+
+        if ($gradosAdicionales % 360 !== 0) {
+            $img = imagerotate($img, -$gradosAdicionales, imagecolorallocatealpha($img, 0, 0, 0, 127));
+        }
+
+        imagealphablending($img, false);
+        imagesavealpha($img, true);
+        imagepng($img, $destinoCompleto, 8);
+        imagedestroy($img);
+
+        return '/storage/' . $destinoRelativo;
+    }
+
     // Subir Firma digital como imagen (RF07 / Requerimiento de firmas fotográficas)
     public function subirFirma(Request $request)
     {
         $request->validate([
-            'firma' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'firma'       => 'required|image|mimes:jpeg,png,jpg,webp|max:20480',
+            'rotacion'    => 'nullable|integer',
+            'orientacion' => 'nullable|in:horizontal,vertical',
         ], [
             'firma.required' => 'Debes adjuntar la foto o imagen de tu firma.',
             'firma.image'    => 'El archivo debe ser una imagen válida (PNG, JPG, WEBP).',
-            'firma.max'      => 'La imagen no debe pesar más de 5MB.',
+            'firma.max'      => 'La imagen no debe pesar más de 20MB.',
         ]);
 
         $user = $request->user();
@@ -86,20 +154,203 @@ class PerfilController extends Controller
             Storage::disk('public')->delete($rutaAnterior);
         }
 
-        $archivo = $request->file('firma');
-        $nombre = 'firma_' . $user->id . '_' . time() . '.' . $archivo->getClientOriginalExtension();
-        $path = $archivo->storeAs('firmas', $nombre, 'public');
+        $rotacion = (int) $request->input('rotacion', 0);
+        $orientacion = $request->input('orientacion', 'horizontal');
+        if ($orientacion === 'vertical' && $rotacion === 0) {
+            $rotacion = 90;
+        }
 
-        $urlPublica = '/storage/' . $path;
-        $user->update(['firma_digital' => $urlPublica]);
+        $urlPublica = $this->procesarYGuardarImagen($request->file('firma'), 'firmas', 'firma_' . $user->id, $rotacion);
+
+        $user->update([
+            'firma_digital'     => $urlPublica,
+            'firma_orientacion' => $orientacion,
+        ]);
 
         if ($user->rol === 'empresario' && $user->empresario) {
             $user->empresario->update(['firma_imagen' => $urlPublica]);
         }
 
         return response()->json([
-            'message' => 'Foto de firma guardada correctamente.',
-            'firma_digital' => $urlPublica,
+            'message'           => 'Foto de firma guardada correctamente.',
+            'firma_digital'     => $urlPublica,
+            'firma_orientacion' => $orientacion,
+        ]);
+    }
+
+    // Rotar firma digital existente (90° por llamada o orientación específica)
+    public function rotarFirma(Request $request)
+    {
+        $user = $request->user();
+        $firmaUrl = $user->firma_digital ?: optional($user->empresario)->firma_imagen;
+        if (!$firmaUrl) {
+            return response()->json(['message' => 'No tienes una firma registrada para rotar.'], 422);
+        }
+
+        $grados = (int) $request->input('grados', 90);
+        $rutaFisica = public_path(ltrim($firmaUrl, '/'));
+        if (!is_file($rutaFisica)) {
+            $rutaFisica = storage_path('app/public/' . preg_replace('#^/?storage/#', '', $firmaUrl));
+        }
+        if (!is_file($rutaFisica)) {
+            return response()->json(['message' => 'Archivo de firma no encontrado en el servidor.'], 404);
+        }
+
+        $extension = strtolower(pathinfo($rutaFisica, PATHINFO_EXTENSION));
+        $img = null;
+        switch ($extension) {
+            case 'jpg':
+            case 'jpeg':
+                $img = @imagecreatefromjpeg($rutaFisica);
+                break;
+            case 'png':
+                $img = @imagecreatefrompng($rutaFisica);
+                break;
+            case 'webp':
+                $img = @imagecreatefromwebp($rutaFisica);
+                break;
+            default:
+                $img = @imagecreatefromstring(file_get_contents($rutaFisica));
+                break;
+        }
+
+        if (!$img) {
+            return response()->json(['message' => 'No se pudo procesar la imagen de firma.'], 500);
+        }
+
+        $img = imagerotate($img, -$grados, imagecolorallocatealpha($img, 0, 0, 0, 127));
+        imagealphablending($img, false);
+        imagesavealpha($img, true);
+
+        $nuevoNombre = 'firma_' . $user->id . '_' . time() . '.png';
+        $nuevoDestino = storage_path('app/public/firmas/' . $nuevoNombre);
+        if (!is_dir(dirname($nuevoDestino))) {
+            mkdir(dirname($nuevoDestino), 0755, true);
+        }
+        imagepng($img, $nuevoDestino, 8);
+        imagedestroy($img);
+
+        @unlink($rutaFisica);
+
+        $nuevaUrl = '/storage/firmas/' . $nuevoNombre;
+        $nuevaOrientacion = ($user->firma_orientacion === 'vertical') ? 'horizontal' : 'vertical';
+        if ($request->filled('orientacion')) {
+            $nuevaOrientacion = $request->orientacion;
+        }
+
+        $user->update([
+            'firma_digital'     => $nuevaUrl,
+            'firma_orientacion' => $nuevaOrientacion,
+        ]);
+
+        if ($user->rol === 'empresario' && $user->empresario) {
+            $user->empresario->update(['firma_imagen' => $nuevaUrl]);
+        }
+
+        return response()->json([
+            'message'           => 'Firma rotada correctamente.',
+            'firma_digital'     => $nuevaUrl,
+            'firma_orientacion' => $nuevaOrientacion,
+        ]);
+    }
+
+    // Subir Foto de Perfil / Hoja de Vida (3x4)
+    public function subirFoto(Request $request)
+    {
+        $request->validate([
+            'foto'     => 'required|image|mimes:jpeg,png,jpg,webp|max:20480',
+            'rotacion' => 'nullable|integer',
+        ], [
+            'foto.required' => 'Debes adjuntar la foto para la hoja de vida.',
+            'foto.image'    => 'El archivo debe ser una imagen válida (PNG, JPG, WEBP).',
+            'foto.max'      => 'La foto no debe pesar más de 20MB.',
+        ]);
+
+        $user = $request->user();
+
+        // Eliminar foto anterior si existe
+        if ($user->foto) {
+            $rutaAnterior = str_replace('/storage/', '', $user->foto);
+            Storage::disk('public')->delete($rutaAnterior);
+        }
+
+        $rotacion = (int) $request->input('rotacion', 0);
+        $urlPublica = $this->procesarYGuardarImagen($request->file('foto'), 'fotos', 'foto_' . $user->id, $rotacion);
+
+        $user->update(['foto' => $urlPublica]);
+        if ($user->estudiante) {
+            $user->estudiante->update(['foto' => $urlPublica]);
+        }
+
+        return response()->json([
+            'message' => 'Foto para hoja de vida guardada correctamente.',
+            'foto'    => $urlPublica,
+        ]);
+    }
+
+    // Rotar Foto existente de Hoja de Vida (90°)
+    public function rotarFoto(Request $request)
+    {
+        $user = $request->user();
+        $fotoUrl = $user->foto ?? optional($user->estudiante)->foto;
+        if (!$fotoUrl) {
+            return response()->json(['message' => 'No tienes una foto registrada para rotar.'], 422);
+        }
+
+        $grados = (int) $request->input('grados', 90);
+        $rutaFisica = public_path(ltrim($fotoUrl, '/'));
+        if (!is_file($rutaFisica)) {
+            $rutaFisica = storage_path('app/public/' . preg_replace('#^/?storage/#', '', $fotoUrl));
+        }
+        if (!is_file($rutaFisica)) {
+            return response()->json(['message' => 'Archivo de foto no encontrado en el servidor.'], 404);
+        }
+
+        $extension = strtolower(pathinfo($rutaFisica, PATHINFO_EXTENSION));
+        $img = null;
+        switch ($extension) {
+            case 'jpg':
+            case 'jpeg':
+                $img = @imagecreatefromjpeg($rutaFisica);
+                break;
+            case 'png':
+                $img = @imagecreatefrompng($rutaFisica);
+                break;
+            case 'webp':
+                $img = @imagecreatefromwebp($rutaFisica);
+                break;
+            default:
+                $img = @imagecreatefromstring(file_get_contents($rutaFisica));
+                break;
+        }
+
+        if (!$img) {
+            return response()->json(['message' => 'No se pudo procesar la foto.'], 500);
+        }
+
+        $img = imagerotate($img, -$grados, imagecolorallocatealpha($img, 0, 0, 0, 127));
+        imagealphablending($img, false);
+        imagesavealpha($img, true);
+
+        $nuevoNombre = 'foto_' . $user->id . '_' . time() . '.png';
+        $nuevoDestino = storage_path('app/public/fotos/' . $nuevoNombre);
+        if (!is_dir(dirname($nuevoDestino))) {
+            mkdir(dirname($nuevoDestino), 0755, true);
+        }
+        imagepng($img, $nuevoDestino, 8);
+        imagedestroy($img);
+
+        @unlink($rutaFisica);
+
+        $nuevaUrl = '/storage/fotos/' . $nuevoNombre;
+        $user->update(['foto' => $nuevaUrl]);
+        if ($user->estudiante) {
+            $user->estudiante->update(['foto' => $nuevaUrl]);
+        }
+
+        return response()->json([
+            'message' => 'Foto rotada correctamente.',
+            'foto'    => $nuevaUrl,
         ]);
     }
 
@@ -113,19 +364,32 @@ class PerfilController extends Controller
         }
 
         $request->validate([
-            'resumen_profesional'      => 'nullable|string',
-            'habilidades'              => 'nullable|string',
-            'telefono'                 => 'nullable|string|max:20',
+            'resumen_profesional'      => 'nullable|string|max:1000',
+            'habilidades'              => 'nullable|string|max:500',
+            'telefono'                 => ['nullable', 'string', 'regex:/^[0-9]{7,10}$/'],
             'direccion'                => 'nullable|string|max:150',
-            'ciudad'                   => 'nullable|string|max:150',
+            'ciudad'                   => ['nullable', 'string', 'regex:/^[\pL\s]+$/u', 'max:100'],
             'linkedin'                 => 'nullable|string|max:150',
             'idiomas'                  => 'nullable|string|max:150',
-            'formacion_complementaria' => 'nullable|string',
+            'formacion_complementaria' => 'nullable|string|max:1000',
+            'fecha_nacimiento'         => 'nullable|date',
+            'lugar_nacimiento'         => 'nullable|string|max:100',
+            'estado_civil'             => 'nullable|string|max:50',
+            'rh'                       => 'nullable|string|max:10',
+            'contacto_emergencia'      => 'nullable|string|max:150',
+            'telefono_emergencia'      => ['nullable', 'string', 'max:50'],
+            'datos_formato_hv'         => 'nullable|array',
+        ], [
+            'telefono.regex' => 'El teléfono solo debe contener números (entre 7 y 10 dígitos).',
+            'ciudad.regex'   => 'La ciudad solo puede contener letras y espacios.',
         ]);
 
         $estudiante->update($request->only([
             'resumen_profesional', 'habilidades', 'telefono', 'direccion',
             'ciudad', 'linkedin', 'idiomas', 'formacion_complementaria',
+            'fecha_nacimiento', 'lugar_nacimiento', 'estado_civil', 'rh',
+            'contacto_emergencia', 'telefono_emergencia',
+            'datos_formato_hv',
         ]));
 
         return response()->json([
@@ -144,6 +408,9 @@ class PerfilController extends Controller
             'descripcion'  => 'nullable|string',
             'fecha_inicio' => 'nullable|date',
             'fecha_fin'    => 'nullable|date',
+        ], [
+            'titulo.required' => 'El título de la experiencia es obligatorio.',
+            'tipo.required'   => 'El tipo de experiencia es obligatorio.',
         ]);
 
         $estudiante = $request->user()->estudiante;

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Estudiante;
 use App\Models\FormatoAsistencia;
 use App\Models\Pasantia;
 use App\Models\User;
@@ -33,9 +34,17 @@ class PasantiaController extends Controller
             'pasantia_id'            => 'required|exists:pasantias,id',
             'semana'                 => 'nullable|string|max:50',
             'fecha_registro'         => 'required|date',
-            'horas_cumplidas'        => 'required|integer|min:1|max:24',
+            'horas_cumplidas'        => ['required', 'integer', 'between:1,24'],
             'actividades_realizadas' => 'required|string',
             'evidencia'              => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+        ], [
+            'pasantia_id.required'            => 'La pasantía es obligatoria.',
+            'fecha_registro.required'         => 'La fecha de registro es obligatoria.',
+            'horas_cumplidas.required'        => 'Las horas cumplidas son obligatorias.',
+            'horas_cumplidas.between'         => 'Las horas cumplidas deben estar entre 1 y 24 horas.',
+            'actividades_realizadas.required' => 'Debes detallar las actividades realizadas.',
+            'evidencia.mimes'                 => 'La evidencia debe ser un archivo PDF, JPG o PNG.',
+            'evidencia.max'                   => 'La evidencia no debe superar 5MB.',
         ]);
 
         $pasantia = Pasantia::where('estudiante_id', $request->user()->estudiante->id)
@@ -94,10 +103,17 @@ class PasantiaController extends Controller
     public function vincular(Request $request)
     {
         $datos = $request->validate([
-            'numero_documento' => 'required|string',
-            'cargo_pasantia'   => 'nullable|string|max:100',
+            'numero_documento' => ['required', 'string', 'regex:/^[0-9]{5,10}$/'],
+            'cargo_pasantia'   => ['nullable', 'string', 'regex:/^[\pL\s]+$/u', 'max:100'],
             'fecha_inicio'     => 'required|date',
             'fecha_fin'        => 'nullable|date|after_or_equal:fecha_inicio',
+        ], [
+            'numero_documento.required' => 'El número de documento es obligatorio.',
+            'numero_documento.regex'    => 'El documento debe contener solo números (entre 5 y 10 dígitos).',
+            'cargo_pasantia.regex'      => 'El cargo solo puede contener letras y espacios.',
+            'cargo_pasantia.max'        => 'El cargo no debe superar los 100 caracteres.',
+            'fecha_inicio.required'     => 'La fecha de inicio es obligatoria.',
+            'fecha_fin.after_or_equal'  => 'La fecha de fin debe ser igual o posterior a la fecha de inicio.',
         ]);
 
         $user = User::where('numero_documento', $datos['numero_documento'])->where('rol', 'estudiante')->first();
@@ -134,7 +150,21 @@ class PasantiaController extends Controller
         ], 201);
     }
 
-    // Empresario: Check de habilitado + firma (foto) del formato (RF07)
+    // Admin: obtener pasantías y asistencias de un estudiante específico para seguimiento
+    public function getPasantiasDeEstudiante(Estudiante $estudiante)
+    {
+        $pasantias = Pasantia::where('estudiante_id', $estudiante->id)
+            ->with([
+                'empresario.user',
+                'estudiante.user',
+                'formatosAsistencia' => fn ($q) => $q->orderBy('fecha_registro', 'desc'),
+            ])
+            ->get();
+
+        return response()->json($pasantias);
+    }
+
+    // Empresario o Administrador: Check de habilitación + firma (foto) del formato
     public function aprobarAsistencia(Request $request, $id)
     {
         $request->validate([
@@ -144,11 +174,16 @@ class PasantiaController extends Controller
         ]);
 
         $user = $request->user();
-        $asistencia = FormatoAsistencia::with('pasantia.empresario')
-            ->whereHas('pasantia.empresario', fn ($q) => $q->where('user_id', $user->id))
-            ->findOrFail($id);
 
-        $firmaUrl = $user->firma_digital ?: optional($user->empresario)->firma_imagen;
+        if ($user->rol === 'admin') {
+            $asistencia = FormatoAsistencia::with('pasantia.empresario')->findOrFail($id);
+            $firmaUrl = $user->firma_digital;
+        } else {
+            $asistencia = FormatoAsistencia::with('pasantia.empresario')
+                ->whereHas('pasantia.empresario', fn ($q) => $q->where('user_id', $user->id))
+                ->findOrFail($id);
+            $firmaUrl = $user->firma_digital ?: optional($user->empresario)->firma_imagen;
+        }
 
         if ($request->check_habilitado && ! $firmaUrl) {
             return response()->json([
@@ -156,13 +191,26 @@ class PasantiaController extends Controller
             ], 422);
         }
 
-        $asistencia->update([
-            'check_habilitado'     => $request->check_habilitado,
-            'estado'               => $request->estado,
-            'observaciones'        => $request->observaciones,
-            'firma_empresario_url' => $request->check_habilitado ? $firmaUrl : null,
-            'fecha_firma'          => $request->check_habilitado ? now() : null,
-        ]);
+        $datosActualizar = [
+            'estado'        => $request->estado,
+            'observaciones' => $request->observaciones,
+        ];
+
+        if ($user->rol === 'admin') {
+            $datosActualizar['check_docente'] = $request->check_habilitado;
+            $datosActualizar['firma_docente_url'] = $request->check_habilitado ? $firmaUrl : null;
+            $datosActualizar['fecha_firma_docente'] = $request->check_habilitado ? now() : null;
+            // Si el admin aprueba, también valida el formato general
+            if ($request->check_habilitado) {
+                $datosActualizar['check_habilitado'] = true;
+            }
+        } else {
+            $datosActualizar['check_habilitado'] = $request->check_habilitado;
+            $datosActualizar['firma_empresario_url'] = $request->check_habilitado ? $firmaUrl : null;
+            $datosActualizar['fecha_firma'] = $request->check_habilitado ? now() : null;
+        }
+
+        $asistencia->update($datosActualizar);
 
         return response()->json([
             'message'    => $request->check_habilitado
@@ -213,11 +261,27 @@ class PasantiaController extends Controller
 
         // Firma empresario
         $firmaEmpresarioBase64 = null;
-        $empFirmaUrl = $empresario->user->firma_digital ?: $empresario->firma_imagen;
+        $empFirmaUrl = $asistencias->whereNotNull('firma_empresario_url')->value('firma_empresario_url')
+            ?? ($empresario->user->firma_digital ?: $empresario->firma_imagen);
         if ($empFirmaUrl) {
             $fPath = public_path(ltrim($empFirmaUrl, '/'));
             if (is_file($fPath)) {
                 $firmaEmpresarioBase64 = 'data:' . (mime_content_type($fPath) ?: 'image/png') . ';base64,' . base64_encode(file_get_contents($fPath));
+            }
+        }
+
+        // Firma docente FET / Admin institucional
+        $firmaDocenteBase64 = null;
+        $adminConFirma = User::where('rol', 'admin')->whereNotNull('firma_digital')->first();
+        $docenteNombre = $adminConFirma ? ($adminConFirma->nombres . ' ' . $adminConFirma->apellidos) : 'JUAN GABRIEL CARVAJAL VEGA';
+
+        $docenteFirmaUrl = $asistencias->whereNotNull('firma_docente_url')->value('firma_docente_url')
+            ?? optional($adminConFirma)->firma_digital;
+
+        if ($docenteFirmaUrl) {
+            $fPath = public_path(ltrim($docenteFirmaUrl, '/'));
+            if (is_file($fPath)) {
+                $firmaDocenteBase64 = 'data:' . (mime_content_type($fPath) ?: 'image/png') . ';base64,' . base64_encode(file_get_contents($fPath));
             }
         }
 
@@ -230,7 +294,8 @@ class PasantiaController extends Controller
             'logoBase64'             => $logoBase64,
             'firmaEstudianteBase64'  => $firmaEstudianteBase64,
             'firmaEmpresarioBase64'  => $firmaEmpresarioBase64,
-            'docenteNombre'          => 'JUAN GABRIEL CARVAJAL VEGA',
+            'firmaDocenteBase64'     => $firmaDocenteBase64,
+            'docenteNombre'          => $docenteNombre,
             'periodo'                => '2026-1',
         ])->setPaper('letter', 'portrait');
 

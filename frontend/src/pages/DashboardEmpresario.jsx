@@ -3,6 +3,14 @@ import { useAuth } from '../context/AuthContext'
 import api from '../api/axios'
 import { esPaseHabilitado, urlArchivo, descargarPdf } from '../api/archivos'
 import HojaVidaVista from '../components/HojaVidaVista'
+import ReglaInput from '../components/ReglaInput'
+import { comprimirImagen } from '../utils/imageCompressor'
+import {
+  filtrarSoloNumeros,
+  filtrarSoloLetras,
+  obtenerReglaCampo,
+  normalizarError,
+} from '../utils/validationHelper'
 
 export default function DashboardEmpresario() {
   const { user, logout } = useAuth()
@@ -10,6 +18,8 @@ export default function DashboardEmpresario() {
   const [pasantias, setPasantias] = useState([])
   const [cargando, setCargando] = useState(true)
   const [notificacion, setNotificacion] = useState(null)
+  const [focoCampo, setFocoCampo] = useState('')
+  const [erroresVincular, setErroresVincular] = useState({})
 
   // Modal para ver Hoja de Vida de Pasante en solo lectura
   const [estudianteHvModal, setEstudianteHvModal] = useState(null)
@@ -32,6 +42,8 @@ export default function DashboardEmpresario() {
 
   // Subir / Cambiar foto de firma del empresario
   const [subiendoFirma, setSubiendoFirma] = useState(false)
+  const [rotandoFirma, setRotandoFirma] = useState(false)
+  const [firmaEmpresario, setFirmaEmpresario] = useState(user?.firma_digital || null)
 
   const avisar = (mensaje, tipo = 'exito') => {
     setNotificacion({ mensaje, tipo })
@@ -43,6 +55,10 @@ export default function DashboardEmpresario() {
       const res = await api.get('/pasantias/empresario')
       setEmpresario(res.data.empresario)
       setPasantias(res.data.pasantias || [])
+      const f = res.data.empresario?.user?.firma_digital || res.data.empresario?.firma_imagen
+      if (f) {
+        setFirmaEmpresario(f)
+      }
     } catch (err) {
       avisar('Error al cargar datos del panel empresarial.', 'error')
     } finally {
@@ -54,16 +70,20 @@ export default function DashboardEmpresario() {
     cargarDatos()
   }, [])
 
-  // Subir foto de firma del empresario
+  // Subir foto de firma del empresario con compresión
   const handleSubirFirma = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const data = new FormData()
-    data.append('firma', file)
     setSubiendoFirma(true)
     try {
-      await api.post('/perfil/firma', data)
+      const fileComprimido = await comprimirImagen(file, 1200, 0.9)
+      const data = new FormData()
+      data.append('firma', fileComprimido)
+      const res = await api.post('/perfil/firma', data)
       avisar('Foto de firma actualizada correctamente.')
+      if (res.data?.firma_digital) {
+        setFirmaEmpresario(res.data.firma_digital + '?t=' + Date.now())
+      }
       cargarDatos()
     } catch (err) {
       avisar(err.response?.data?.message || 'Error al subir la firma.', 'error')
@@ -72,9 +92,41 @@ export default function DashboardEmpresario() {
     }
   }
 
+  // Rotar firma del empresario (90°)
+  const handleRotarFirma = async () => {
+    setRotandoFirma(true)
+    try {
+      const res = await api.post('/perfil/firma/rotar', { grados: 90 })
+      avisar('Foto de firma rotada correctamente.')
+      if (res.data?.firma_digital) {
+        setFirmaEmpresario(res.data.firma_digital + '?t=' + Date.now())
+      }
+      cargarDatos()
+    } catch (err) {
+      avisar(err.response?.data?.message || 'Error al rotar la firma.', 'error')
+    } finally {
+      setRotandoFirma(false)
+    }
+  }
+
   // Vincular estudiante a la empresa
   const handleVincularEstudiante = async (e) => {
     e.preventDefault()
+    setErroresVincular({})
+
+    const errs = {}
+    if (formVincular.numero_documento.length < 5) {
+      errs.numero_documento = ['El documento debe contener entre 5 y 10 dígitos numéricos.']
+    }
+    if (!formVincular.cargo_pasantia.trim()) {
+      errs.cargo_pasantia = ['El cargo es obligatorio (solo letras).']
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setErroresVincular(errs)
+      return
+    }
+
     setVinculando(true)
     try {
       await api.post('/pasantias/vincular', formVincular)
@@ -88,7 +140,10 @@ export default function DashboardEmpresario() {
       })
       cargarDatos()
     } catch (err) {
-      avisar(err.response?.data?.message || 'No se pudo vincular al estudiante.', 'error')
+      if (err.response?.data?.errors) {
+        setErroresVincular(err.response.data.errors)
+      }
+      avisar(normalizarError(err.response?.data?.message) || 'No se pudo vincular al estudiante.', 'error')
     } finally {
       setVinculando(false)
     }
@@ -134,7 +189,7 @@ export default function DashboardEmpresario() {
     }))
   )
 
-  const firmaEmpresarioUrl = user?.firma_digital || empresario?.firma_imagen
+  const firmaEmpresarioUrl = firmaEmpresario || empresario?.firma_imagen || user?.firma_digital
 
   return (
     <div className="min-h-screen bg-[#f4f7f5] text-slate-800 flex flex-col font-sans selection:bg-[#08940c] selection:text-white">
@@ -185,43 +240,82 @@ export default function DashboardEmpresario() {
 
       {/* Contenido Principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full flex-1 space-y-7">
-        {/* Banner de Empresa & Firma Digital */}
-        <section className="bg-white border border-[#dfe6e1] rounded-3xl p-6 sm:p-7 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
-          <div className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#067a0a] bg-[#e8f8ea] px-2.5 py-0.5 rounded-md">
+        {/* Banner de Empresa & Firma Digital Ampliada */}
+        <section className="bg-white border border-[#dfe6e1] rounded-3xl p-6 sm:p-7 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-xl">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#067a0a] bg-[#e8f8ea] px-2.5 py-1 rounded-md border border-[#08940c]/20">
               Supervisor Empresarial
             </span>
-            <h2 className="text-2xl font-extrabold text-[#14201a] mt-1">{empresario?.empresa}</h2>
-            <p className="text-sm text-[#5f6b64]">
-              Supervisor: <span className="font-bold text-[#14201a]">{user?.nombres} {user?.apellidos}</span> · Cargo: {empresario?.cargo || 'Tutor de Pasantía'} · NIT: {empresario?.nit || 'N/A'}
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-[#14201a] tracking-tight">{empresario?.empresa}</h2>
+            <p className="text-sm text-[#5f6b64] leading-relaxed">
+              Supervisor: <span className="font-bold text-[#14201a]">{user?.nombres} {user?.apellidos}</span> · Cargo: <span className="text-[#14201a] font-medium">{empresario?.cargo || 'Tutor de Pasantía'}</span> · NIT: <span className="font-mono text-[#14201a]">{empresario?.nit || 'N/A'}</span>
             </p>
+            <div className="pt-1">
+              <span className="inline-flex items-center gap-1.5 text-xs text-[#5f6b64]">
+                <span className="w-2 h-2 rounded-full bg-[#08940c]"></span>
+                Firma institucional para estampar en los formatos de asistencia de tus pasantes.
+              </span>
+            </div>
           </div>
 
-          {/* Estado de Firma Digital del Empresario */}
-          <div className="flex items-center gap-4 bg-[#f8faf9] border border-[#dfe6e1] rounded-2xl p-3.5 shrink-0">
+          {/* Apartado Ampliado de Firma Digital del Empresario */}
+          <div className="bg-[#f8faf9] border border-[#dfe6e1] rounded-2xl p-5 shrink-0 flex flex-col items-center sm:min-w-[290px]">
+            <div className="w-full flex items-center justify-between mb-2.5">
+              <span className="text-xs font-extrabold text-[#14201a] uppercase tracking-wider">
+                Firma del Supervisor
+              </span>
+              {firmaEmpresarioUrl && (
+                <span className="text-[10px] font-bold text-[#067a0a] bg-[#e8f8ea] px-2 py-0.5 rounded-full border border-[#08940c]/20">
+                  ✓ Registrada
+                </span>
+              )}
+            </div>
+
             {firmaEmpresarioUrl ? (
-              <div className="flex items-center gap-3">
-                <img
-                  src={urlArchivo(firmaEmpresarioUrl)}
-                  alt="Firma"
-                  className="h-10 max-w-[120px] object-contain border border-[#dfe6e1] bg-white rounded-lg p-1"
-                />
-                <div>
-                  <p className="text-xs font-bold text-[#067a0a]">✓ Firma registrada</p>
-                  <label className="text-[11px] font-bold text-[#08940c] hover:underline cursor-pointer">
-                    <span>Cambiar foto</span>
+              <div className="w-full flex flex-col items-center space-y-3">
+                {/* Contenedor espacioso para visualizar cómo queda en el documento */}
+                <div className="w-full h-28 bg-white rounded-xl border border-dashed border-[#08940c]/40 p-2.5 flex flex-col items-center justify-center relative shadow-inner">
+                  <img
+                    key={firmaEmpresarioUrl}
+                    src={urlArchivo(firmaEmpresarioUrl)}
+                    alt="Firma Supervisor Empresarial"
+                    className="max-h-20 max-w-full object-contain"
+                  />
+                  <div className="w-3/4 border-t border-slate-300 mt-1"></div>
+                  <span className="text-[8px] text-[#5f6b64] uppercase tracking-wider font-semibold">
+                    Línea de firma para asistencias FET
+                  </span>
+                </div>
+
+                {/* Botones de acción: Rotar y Cambiar */}
+                <div className="flex items-center justify-between w-full gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleRotarFirma}
+                    disabled={rotandoFirma}
+                    className="flex-1 py-1.5 px-3 text-xs font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-xl border border-[#08940c]/30 shadow-sm cursor-pointer flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                    title="Girar firma 90 grados para orientarla a tu gusto"
+                  >
+                    <span>🔄</span>
+                    <span>{rotandoFirma ? 'Girando...' : 'Rotar 90°'}</span>
+                  </button>
+
+                  <label className="flex-1 py-1.5 px-3 text-center text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 rounded-xl border border-[#dfe6e1] shadow-sm cursor-pointer transition-all">
+                    <span>{subiendoFirma ? 'Subiendo...' : 'Cambiar'}</span>
                     <input type="file" accept="image/*" onChange={handleSubirFirma} className="hidden" />
                   </label>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3">
-                <div>
-                  <p className="text-xs font-bold text-[#d93025]">Sin firma registrada</p>
-                  <p className="text-[10px] text-[#5f6b64]">Requerida para firmar asistencias</p>
+              <div className="w-full flex flex-col items-center text-center py-2 space-y-3">
+                <div className="w-full h-24 bg-white rounded-xl border border-dashed border-red-300 p-3 flex flex-col items-center justify-center text-[#d93025]">
+                  <span className="text-xl">✍️</span>
+                  <p className="text-xs font-bold mt-1">Sin firma registrada</p>
+                  <p className="text-[10px] text-[#5f6b64]">Requerida para aprobar asistencias</p>
                 </div>
-                <label className="px-3 py-1.5 rounded-xl bg-[#08940c] hover:bg-[#067a0a] text-white text-xs font-bold cursor-pointer">
-                  <span>Subir foto firma</span>
+
+                <label className="w-full py-2 px-4 rounded-xl bg-[#08940c] hover:bg-[#067a0a] text-white text-xs font-bold shadow-md shadow-[#08940c]/25 cursor-pointer text-center transition-all">
+                  <span>{subiendoFirma ? 'Subiendo...' : 'Subir foto de firma'}</span>
                   <input type="file" accept="image/*" onChange={handleSubirFirma} className="hidden" />
                 </label>
               </div>
@@ -289,11 +383,22 @@ export default function DashboardEmpresario() {
 
                     <div className="flex flex-col gap-2">
                       <button
-                        onClick={() => setEstudianteHvModal(est)}
-                        className="w-full text-center py-2 rounded-xl bg-white hover:bg-[#e8f8ea] text-[#067a0a] border border-[#08940c]/30 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                        onClick={() => {
+                          if (!est?.hoja_vida_pdf) {
+                            avisar(`El estudiante ${est?.user?.nombres || 'pasante'} aún no ha subido su hoja de vida institucional.`, 'advertencia')
+                            return
+                          }
+                          setEstudianteHvModal(est)
+                        }}
+                        className={`w-full text-center py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                          est?.hoja_vida_pdf
+                            ? 'bg-white hover:bg-[#e8f8ea] text-[#067a0a] border-[#08940c]/30'
+                            : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                        }`}
+                        title={est?.hoja_vida_pdf ? 'Ver Hoja de Vida (Solo Lectura)' : 'El pasante no ha subido su hoja de vida'}
                       >
-                        <span>📄</span>
-                        <span>Ver Hoja de Vida (Solo Lectura)</span>
+                        <span>{est?.hoja_vida_pdf ? '📄' : '⚠️'}</span>
+                        <span>{est?.hoja_vida_pdf ? 'Ver Hoja de Vida (Solo Lectura)' : 'H.V. Pendiente por subir'}</span>
                       </button>
 
                       <button
@@ -448,13 +553,28 @@ export default function DashboardEmpresario() {
 
               {/* Previsualización de Firma que se estampará */}
               <div className="pt-2 border-t border-[#08940c]/20 flex items-center justify-between">
-                <span className="text-xs font-bold text-[#067a0a]">Firma a estampar:</span>
+                <div>
+                  <span className="text-xs font-bold text-[#067a0a] block">Firma a estampar:</span>
+                  <span className="text-[10px] text-[#5f6b64]">Aparecerá en el formato de asistencia</span>
+                </div>
                 {firmaEmpresarioUrl ? (
-                  <img
-                    src={urlArchivo(firmaEmpresarioUrl)}
-                    alt="Firma Supervisor"
-                    className="h-9 max-w-[120px] object-contain bg-white rounded-lg p-1 border border-[#08940c]/30"
-                  />
+                  <div className="flex items-center gap-2">
+                    <img
+                      key={firmaEmpresarioUrl}
+                      src={urlArchivo(firmaEmpresarioUrl)}
+                      alt="Firma Supervisor"
+                      className="h-12 max-w-[160px] object-contain bg-white rounded-lg p-1.5 border border-[#08940c]/30 shadow-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRotarFirma}
+                      disabled={rotandoFirma}
+                      className="px-2.5 py-1 text-[11px] font-bold text-[#067a0a] bg-white hover:bg-[#e8f8ea] rounded-lg border border-[#08940c]/30 cursor-pointer shadow-sm transition-all"
+                      title="Girar firma 90° si está invertida o vertical"
+                    >
+                      {rotandoFirma ? 'Girando...' : '🔄 Rotar'}
+                    </button>
+                  </div>
                 ) : (
                   <span className="text-xs text-[#d93025] font-bold">Falta registrar foto de firma</span>
                 )}
@@ -509,28 +629,36 @@ export default function DashboardEmpresario() {
 
             <form onSubmit={handleVincularEstudiante} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número de Documento del Estudiante</label>
+                <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número de Documento del Estudiante (solo números, máx 10)</label>
                 <input
                   type="text"
                   required
+                  maxLength={10}
                   value={formVincular.numero_documento}
-                  onChange={(e) => setFormVincular({ ...formVincular, numero_documento: e.target.value })}
+                  onFocus={() => setFocoCampo('vinc_doc')}
+                  onBlur={() => setFocoCampo('')}
+                  onChange={(e) => setFormVincular({ ...formVincular, numero_documento: filtrarSoloNumeros(e.target.value, 10) })}
                   className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2 text-sm text-[#14201a] font-mono"
                   placeholder="Ej. 1000000002"
                 />
+                <ReglaInput mensaje={obtenerReglaCampo('documento', formVincular.numero_documento, erroresVincular.numero_documento, focoCampo === 'vinc_doc')} />
                 <p className="text-[11px] text-[#5f6b64] mt-1">El estudiante debe contar con su pase en estado "Habilitado".</p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Cargo / Rol de Pasantía</label>
+                <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Cargo / Rol de Pasantía (solo letras)</label>
                 <input
                   type="text"
                   required
+                  maxLength={100}
                   value={formVincular.cargo_pasantia}
-                  onChange={(e) => setFormVincular({ ...formVincular, cargo_pasantia: e.target.value })}
+                  onFocus={() => setFocoCampo('vinc_cargo')}
+                  onBlur={() => setFocoCampo('')}
+                  onChange={(e) => setFormVincular({ ...formVincular, cargo_pasantia: filtrarSoloLetras(e.target.value, 100) })}
                   className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2 text-sm text-[#14201a]"
-                  placeholder="Ej. Desarrollador Junior / Auxiliar de TI"
+                  placeholder="Ej. Desarrollador Pasante"
                 />
+                <ReglaInput mensaje={obtenerReglaCampo('cargo', formVincular.cargo_pasantia, erroresVincular.cargo_pasantia, focoCampo === 'vinc_cargo')} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">

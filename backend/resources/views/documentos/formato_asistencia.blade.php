@@ -114,8 +114,8 @@
             font-size: 8px;
         }
         .firma-mini {
-            max-height: 28px;
-            max-width: 70px;
+            max-height: 38px;
+            max-width: 95px;
             display: block;
             margin: 0 auto;
         }
@@ -146,31 +146,36 @@
         .firmas-grid {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
+            margin-top: 18px;
         }
         .firmas-grid td {
             width: 33.33%;
             vertical-align: bottom;
             text-align: center;
-            padding: 0 10px;
+            padding: 0 8px;
         }
         .firma-slot {
-            min-height: 55px;
-            margin-bottom: 4px;
+            height: 75px;
+            vertical-align: bottom;
+            text-align: center;
+            margin-bottom: 5px;
         }
         .firma-slot img {
-            max-height: 52px;
-            max-width: 140px;
+            max-height: 70px;
+            max-width: 185px;
+            display: inline-block;
+            vertical-align: bottom;
         }
         .linea-firma {
             border-top: 1.5px solid #14201a;
-            padding-top: 4px;
-            font-size: 8.5px;
+            padding-top: 5px;
+            font-size: 9px;
             color: #14201a;
+            text-align: center;
         }
         .linea-firma .cargo {
             color: #5f6b64;
-            font-size: 7.5px;
+            font-size: 8px;
             text-transform: uppercase;
             margin-top: 2px;
         }
@@ -311,7 +316,9 @@
         </td>
         <td>
             <div class="firma-slot">
-                {{-- Espacio para firma institucional Docente FET --}}
+                @if(!empty($firmaDocenteBase64))
+                    <img src="{{ $firmaDocenteBase64 }}" alt="Firma Docente FET">
+                @endif
             </div>
             <div class="linea-firma">
                 <strong>{{ $docenteNombre ?? 'JUAN GABRIEL CARVAJAL VEGA' }}</strong><br>

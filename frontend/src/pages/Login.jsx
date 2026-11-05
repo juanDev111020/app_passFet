@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import ReglaInput from '../components/ReglaInput'
+import { filtrarPassword, normalizarError } from '../utils/validationHelper'
 import './Login.css'
 
 export default function Login() {
@@ -11,11 +13,15 @@ export default function Login() {
   const [verClave, setVerClave] = useState(false)
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [focoCampo, setFocoCampo] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (!email || !password) return setError('Completa tu correo y contraseña.')
+    if (password.length < 8) return setError('La contraseña debe tener mínimo 8 caracteres.')
+    if (password.length > 20) return setError('La contraseña no puede superar los 20 caracteres.')
+
     setEnviando(true)
     try {
       const user = await login(email, password)
@@ -25,8 +31,8 @@ export default function Login() {
       else navigate('/estudiante/pase')
     } catch (err) {
       if (!err.response) setError('No se pudo conectar con el servidor.')
-      else if (err.response.status === 422) setError(Object.values(err.response.data.errors)[0][0])
-      else setError(err.response.data.message)
+      else if (err.response.status === 422) setError(normalizarError(Object.values(err.response.data.errors)[0][0]))
+      else setError(normalizarError(err.response.data.message))
     } finally {
       setEnviando(false)
     }
@@ -79,21 +85,38 @@ export default function Login() {
             <span>Correo electrónico</span>
             <div className="campo-input">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
-              <input type="email" value={email} autoComplete="username"
-                     onChange={(e) => setEmail(e.target.value)} placeholder="usuario@passfet.edu.co" />
+              <input
+                type="email"
+                value={email}
+                autoComplete="username"
+                onFocus={() => setFocoCampo('email')}
+                onBlur={() => setFocoCampo('')}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="usuario@passfet.edu.co"
+              />
             </div>
+            <ReglaInput mensaje={focoCampo === 'email' || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? 'Debe ser un correo válido institucional.' : null} />
           </label>
 
           <label className="campo">
-            <span>Contraseña</span>
+            <span>Contraseña (mínimo 8, máximo 20 caracteres)</span>
             <div className="campo-input">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-              <input type={verClave ? 'text' : 'password'} value={password} autoComplete="current-password"
-                     onChange={(e) => setPassword(e.target.value)} placeholder="Ingresa tu contraseña" />
+              <input
+                type={verClave ? 'text' : 'password'}
+                value={password}
+                maxLength={20}
+                autoComplete="current-password"
+                onFocus={() => setFocoCampo('password')}
+                onBlur={() => setFocoCampo('')}
+                onChange={(e) => setPassword(filtrarPassword(e.target.value, 20))}
+                placeholder="Mínimo 8, máximo 20 caracteres"
+              />
               <button type="button" className="ver-clave" onClick={() => setVerClave(!verClave)}>
                 {verClave ? 'Ocultar' : 'Mostrar'}
               </button>
             </div>
+            <ReglaInput mensaje={focoCampo === 'password' || (password && (password.length < 8 || password.length > 20)) ? (password.length < 8 ? `Mínimo 8 caracteres (actual: ${password.length}).` : `Máximo 20 caracteres (actual: ${password.length}).`) : null} />
           </label>
 
           <button type="submit" className="login-boton" disabled={enviando}>

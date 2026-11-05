@@ -30,22 +30,27 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json(\App\Models\Programa::where('activo', true)->get());
     });
 
-    // Perfil y firma (cualquier usuario autenticado puede ver su perfil y subir su firma)
+    // Perfil, foto y firma (cualquier usuario autenticado puede gestionar su perfil, foto y firma)
     Route::get('/perfil', [PerfilController::class, 'getPerfil']);
     Route::post('/perfil/firma', [PerfilController::class, 'subirFirma']);
+    Route::post('/perfil/firma/rotar', [PerfilController::class, 'rotarFirma']);
+    Route::post('/perfil/foto', [PerfilController::class, 'subirFoto']);
+    Route::post('/perfil/foto/rotar', [PerfilController::class, 'rotarFoto']);
 
     // ---------------- ADMIN ----------------
     Route::middleware('rol:admin')->group(function () {
         // CRUD Estudiantes y control de pase con regla de 1 día (RF02, RF03, RF08)
         Route::apiResource('/estudiantes', EstudianteController::class);
         Route::patch('/estudiantes/{estudiante}/toggle-pase', [EstudianteController::class, 'togglePase']);
+        Route::get('/estudiantes/{estudiante}/pasantias', [PasantiaController::class, 'getPasantiasDeEstudiante']);
     });
 
-    // ---------------- ADMIN + EMPRESARIO (solo lectura) ----------------
+    // ---------------- ADMIN + EMPRESARIO ----------------
     Route::middleware('rol:admin,empresario')->group(function () {
         Route::get('/estudiantes/buscar/{documento}', [EstudianteController::class, 'buscarPorDocumento']);
         Route::get('/estudiantes/{estudiante}/hoja-vida', [HojaVidaController::class, 'ver']);
         Route::get('/estudiantes/{estudiante}/hoja-vida/pdf', [HojaVidaController::class, 'pdf']);
+        Route::patch('/pasantias/asistencias/{id}/aprobar', [PasantiaController::class, 'aprobarAsistencia']);
     });
 
     // ---------------- ESTUDIANTE ----------------
@@ -72,7 +77,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('rol:empresario')->group(function () {
         Route::get('/pasantias/empresario', [PasantiaController::class, 'getPasantesEmpresario']);
         Route::post('/pasantias/vincular', [PasantiaController::class, 'vincular']);
-        Route::patch('/pasantias/asistencias/{id}/aprobar', [PasantiaController::class, 'aprobarAsistencia']);
     });
 
     // Descarga del Formato Oficial de Asistencia en PDF (Admin, Estudiante o Empresario autorizado)

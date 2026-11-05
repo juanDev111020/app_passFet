@@ -22,13 +22,39 @@ class EstudianteController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'nombres' => 'required|string',
-            'apellidos' => 'required|string',
-            'numero_documento' => 'required|string|unique:users',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|string|min:6',
-            'programa_id' => 'required|exists:programas,id',
-            'codigo_estudiantil' => 'required|string|unique:estudiantes'
+            'nombres'            => ['required', 'string', 'regex:/^[\pL\s]+$/u', 'max:50'],
+            'apellidos'          => ['required', 'string', 'regex:/^[\pL\s]+$/u', 'max:50'],
+            'numero_documento'   => ['required', 'string', 'regex:/^[0-9]{5,10}$/', 'max:10', 'unique:users,numero_documento'],
+            'email'              => ['required', 'email', 'max:100', 'unique:users,email'],
+            'password'           => ['required', 'string', 'min:8', 'max:20'],
+            'programa_id'        => ['required', 'exists:programas,id'],
+            'codigo_estudiantil' => ['required', 'string', 'regex:/^[0-9A-Za-z\-]{4,10}$/', 'max:10', 'unique:estudiantes,codigo_estudiantil'],
+            'semestre'           => ['nullable', 'integer', 'between:1,10'],
+            'telefono'           => ['nullable', 'string', 'regex:/^[0-9]{7,10}$/'],
+        ], [
+            'nombres.required'            => 'Los nombres son obligatorios.',
+            'nombres.regex'               => 'Los nombres solo pueden contener letras y espacios.',
+            'nombres.max'                 => 'Los nombres no pueden superar los 50 caracteres.',
+            'apellidos.required'          => 'Los apellidos son obligatorios.',
+            'apellidos.regex'             => 'Los apellidos solo pueden contener letras y espacios.',
+            'apellidos.max'               => 'Los apellidos no pueden superar los 50 caracteres.',
+            'numero_documento.required'   => 'El número de documento es obligatorio.',
+            'numero_documento.regex'      => 'El documento debe contener solo números (entre 5 y 10 dígitos).',
+            'numero_documento.max'        => 'El documento no puede superar 10 caracteres.',
+            'numero_documento.unique'     => 'Este número de documento ya está registrado.',
+            'email.required'              => 'El correo institucional es obligatorio.',
+            'email.email'                 => 'Debe ingresar un correo electrónico válido.',
+            'email.unique'                => 'Este correo electrónico ya está registrado.',
+            'password.required'           => 'La contraseña es obligatoria.',
+            'password.min'                => 'La contraseña debe tener mínimo 8 caracteres.',
+            'password.max'                => 'La contraseña no puede superar 20 caracteres.',
+            'programa_id.required'        => 'Debe seleccionar un programa académico.',
+            'programa_id.exists'          => 'El programa seleccionado no es válido.',
+            'codigo_estudiantil.required' => 'El código estudiantil es obligatorio.',
+            'codigo_estudiantil.regex'    => 'El código estudiantil debe contener entre 4 y 10 caracteres.',
+            'codigo_estudiantil.unique'   => 'Este código estudiantil ya está registrado.',
+            'semestre.between'            => 'El semestre debe estar comprendido entre 1 y 10.',
+            'telefono.regex'              => 'El teléfono solo debe contener números (entre 7 y 10 dígitos).',
         ]);
 
         DB::beginTransaction();
@@ -71,14 +97,28 @@ class EstudianteController extends Controller
     public function update(Request $request, Estudiante $estudiante)
     {
         $request->validate([
-            'nombres' => 'sometimes|required|string',
-            'apellidos' => 'sometimes|required|string',
-            'numero_documento' => 'sometimes|required|string|unique:users,numero_documento,' . $estudiante->user_id,
-            'email' => 'sometimes|required|email|unique:users,email,' . $estudiante->user_id,
-            'programa_id' => 'sometimes|required|exists:programas,id',
-            'codigo_estudiantil' => 'sometimes|required|string|unique:estudiantes,codigo_estudiantil,' . $estudiante->id,
-            'semestre' => 'nullable|integer',
-            'telefono' => 'nullable|string',
+            'nombres'            => ['sometimes', 'required', 'string', 'regex:/^[\pL\s]+$/u', 'max:50'],
+            'apellidos'          => ['sometimes', 'required', 'string', 'regex:/^[\pL\s]+$/u', 'max:50'],
+            'numero_documento'   => ['sometimes', 'required', 'string', 'regex:/^[0-9]{5,10}$/', 'max:10', 'unique:users,numero_documento,' . $estudiante->user_id],
+            'email'              => ['sometimes', 'required', 'email', 'max:100', 'unique:users,email,' . $estudiante->user_id],
+            'programa_id'        => ['sometimes', 'required', 'exists:programas,id'],
+            'codigo_estudiantil' => ['sometimes', 'required', 'string', 'regex:/^[0-9A-Za-z\-]{4,10}$/', 'max:10', 'unique:estudiantes,codigo_estudiantil,' . $estudiante->id],
+            'semestre'           => ['nullable', 'integer', 'between:1,10'],
+            'telefono'           => ['nullable', 'string', 'regex:/^[0-9]{7,10}$/'],
+        ], [
+            'nombres.regex'               => 'Los nombres solo pueden contener letras y espacios.',
+            'nombres.max'                 => 'Los nombres no pueden superar los 50 caracteres.',
+            'apellidos.regex'             => 'Los apellidos solo pueden contener letras y espacios.',
+            'apellidos.max'               => 'Los apellidos no pueden superar los 50 caracteres.',
+            'numero_documento.regex'      => 'El documento debe contener solo números (entre 5 y 10 dígitos).',
+            'numero_documento.max'        => 'El documento no puede superar 10 caracteres.',
+            'numero_documento.unique'     => 'Este número de documento ya pertenece a otro usuario.',
+            'email.email'                 => 'Debe ingresar un correo electrónico válido.',
+            'email.unique'                => 'Este correo electrónico ya pertenece a otro usuario.',
+            'codigo_estudiantil.regex'    => 'El código estudiantil debe contener entre 4 y 10 caracteres.',
+            'codigo_estudiantil.unique'   => 'Este código estudiantil ya pertenece a otro estudiante.',
+            'semestre.between'            => 'El semestre debe estar comprendido entre 1 y 10.',
+            'telefono.regex'              => 'El teléfono solo debe contener números (entre 7 y 10 dígitos).',
         ]);
 
         DB::beginTransaction();

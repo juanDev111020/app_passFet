@@ -14,6 +14,13 @@ class Estudiante extends Model
         'codigo_estudiantil',
         'semestre',
         'telefono',
+        'foto',
+        'fecha_nacimiento',
+        'lugar_nacimiento',
+        'estado_civil',
+        'rh',
+        'contacto_emergencia',
+        'telefono_emergencia',
         'hoja_vida_pdf',
         'resumen_profesional',
         'habilidades',
@@ -22,7 +29,15 @@ class Estudiante extends Model
         'linkedin',
         'idiomas',
         'formacion_complementaria',
+        'datos_formato_hv',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'datos_formato_hv' => 'array',
+        ];
+    }
 
     public function user()
     {

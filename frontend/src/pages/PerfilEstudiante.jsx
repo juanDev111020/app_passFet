@@ -3,6 +3,14 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../api/axios'
 import { descargarPdf, esPaseHabilitado, urlArchivo } from '../api/archivos'
+import ReglaInput from '../components/ReglaInput'
+import { comprimirImagen } from '../utils/imageCompressor'
+import {
+  filtrarSoloNumeros,
+  filtrarSoloLetras,
+  obtenerReglaCampo,
+  normalizarError,
+} from '../utils/validationHelper'
 
 const TIPOS_EXP = {
   semillero: 'Semillero de investigación',
@@ -18,8 +26,31 @@ export default function PerfilEstudiante() {
   const [guardando, setGuardando] = useState(false)
   const [descargandoPdf, setDescargandoPdf] = useState(false)
   const [notificacion, setNotificacion] = useState(null)
+  const [focoCampo, setFocoCampo] = useState('')
+  const [erroresPerfil, setErroresPerfil] = useState({})
+  const [erroresAsistencia, setErroresAsistencia] = useState({})
 
-  // Formulario Datos de Contacto y Perfil
+  // Estado para subida y rotación de foto y firma
+  const [subiendoFoto, setSubiendoFoto] = useState(false)
+  const [rotandoFoto, setRotandoFoto] = useState(false)
+  const [rotandoFirma, setRotandoFirma] = useState(false)
+  const [orientacionFirma, setOrientacionFirma] = useState(user?.firma_orientacion || 'horizontal')
+
+  // Control de acordeón de secciones del formato institucional
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState({
+    superior: false,
+    tecnica: false,
+    cursos: false,
+    laboral: false,
+    investigacion: false,
+    referencias: true,
+  })
+
+  const toggleSeccion = (sec) => {
+    setSeccionesAbiertas((prev) => ({ ...prev, [sec]: !prev[sec] }))
+  }
+
+  // Formulario Datos de Contacto y Perfil Completo Institucional
   const [datosForm, setDatosForm] = useState({
     telefono: '',
     ciudad: '',
@@ -29,6 +60,52 @@ export default function PerfilEstudiante() {
     resumen_profesional: '',
     habilidades: '',
     formacion_complementaria: '',
+    fecha_nacimiento: '',
+    lugar_nacimiento: '',
+    estado_civil: 'Soltero(a)',
+    rh: 'O+',
+    contacto_emergencia: '',
+    telefono_emergencia: '',
+    datos_formato_hv: {
+      maestria: { titulo: '', fecha_grado: '', institucion: '', ciudad: '', titulo_obtenido: '' },
+      especializacion: { titulo: '', fecha_grado: '', institucion: '', ciudad: '', titulo_obtenido: '' },
+      pregrado: { carrera: '', fecha_grado: '', institucion: '', ciudad: '', titulo_obtenido: '' },
+      tecnologo: { titulo: '', fecha_grado: '', institucion: '', ciudad: '', titulo_obtenido: '', modalidad: '' },
+      tecnico: { titulo: '', fecha_grado: '', institucion: '', ciudad: '', titulo_obtenido: '', modalidad: '' },
+      cursos: [
+        { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+        { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+        { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+      ],
+      experiencia_laboral: [
+        { empresa: '', cargo: '', direccion: '', telefono: '', jefe: '', dedicacion: '', fecha_inicio_fin: '', funciones: '' },
+        { empresa: '', cargo: '', direccion: '', telefono: '', jefe: '', dedicacion: '', fecha_inicio_fin: '', funciones: '' },
+        { empresa: '', cargo: '', direccion: '', telefono: '', jefe: '', dedicacion: '', fecha_inicio_fin: '', funciones: '' },
+      ],
+      investigacion: {
+        grupo_nombre: '',
+        grupo_tiempo: '',
+        proyectos: '',
+        tutorias_posgrado: '',
+        tutorias_pregrado: '',
+        par_evaluador: '',
+        informes_tecnicos: '',
+        publicaciones: '',
+        organizaciones: '',
+        ponencias: '',
+      },
+      referencia_familiar: {
+        nombre: '',
+        profesion: '',
+        parentesco: '',
+        telefono: '',
+      },
+      referencia_personal: {
+        nombre: '',
+        profesion: '',
+        telefono: '',
+      },
+    },
   })
 
   // Modal / Formulario Nueva Experiencia
@@ -73,6 +150,7 @@ export default function PerfilEstudiante() {
       const est = resPerfil.data.estudiante
       setEstudiante(est)
       if (est) {
+        const hv = est.datos_formato_hv || {}
         setDatosForm({
           telefono: est.telefono || '',
           ciudad: est.ciudad || '',
@@ -82,6 +160,88 @@ export default function PerfilEstudiante() {
           resumen_profesional: est.resumen_profesional || '',
           habilidades: est.habilidades || '',
           formacion_complementaria: est.formacion_complementaria || '',
+          fecha_nacimiento: est.fecha_nacimiento || '',
+          lugar_nacimiento: est.lugar_nacimiento || '',
+          estado_civil: est.estado_civil || 'Soltero(a)',
+          rh: est.rh || 'O+',
+          contacto_emergencia: est.contacto_emergencia || '',
+          telefono_emergencia: est.telefono_emergencia || '',
+          datos_formato_hv: {
+            maestria: {
+              titulo: hv.maestria?.titulo || '',
+              fecha_grado: hv.maestria?.fecha_grado || '',
+              institucion: hv.maestria?.institucion || '',
+              ciudad: hv.maestria?.ciudad || '',
+              titulo_obtenido: hv.maestria?.titulo_obtenido || '',
+            },
+            especializacion: {
+              titulo: hv.especializacion?.titulo || '',
+              fecha_grado: hv.especializacion?.fecha_grado || '',
+              institucion: hv.especializacion?.institucion || '',
+              ciudad: hv.especializacion?.ciudad || '',
+              titulo_obtenido: hv.especializacion?.titulo_obtenido || '',
+            },
+            pregrado: {
+              carrera: hv.pregrado?.carrera || '',
+              fecha_grado: hv.pregrado?.fecha_grado || '',
+              institucion: hv.pregrado?.institucion || '',
+              ciudad: hv.pregrado?.ciudad || '',
+              titulo_obtenido: hv.pregrado?.titulo_obtenido || '',
+            },
+            tecnologo: {
+              titulo: hv.tecnologo?.titulo || '',
+              fecha_grado: hv.tecnologo?.fecha_grado || '',
+              institucion: hv.tecnologo?.institucion || '',
+              ciudad: hv.tecnologo?.ciudad || '',
+              titulo_obtenido: hv.tecnologo?.titulo_obtenido || '',
+              modalidad: hv.tecnologo?.modalidad || '',
+            },
+            tecnico: {
+              titulo: hv.tecnico?.titulo || '',
+              fecha_grado: hv.tecnico?.fecha_grado || '',
+              institucion: hv.tecnico?.institucion || '',
+              ciudad: hv.tecnico?.ciudad || '',
+              titulo_obtenido: hv.tecnico?.titulo_obtenido || '',
+              modalidad: hv.tecnico?.modalidad || '',
+            },
+            cursos: Array.isArray(hv.cursos) && hv.cursos.length > 0
+              ? hv.cursos
+              : [
+                  { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+                  { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+                  { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+                ],
+            experiencia_laboral: Array.isArray(hv.experiencia_laboral) && hv.experiencia_laboral.length === 3
+              ? hv.experiencia_laboral
+              : [
+                  { empresa: hv.experiencia_laboral?.[0]?.empresa || '', cargo: hv.experiencia_laboral?.[0]?.cargo || '', direccion: hv.experiencia_laboral?.[0]?.direccion || '', telefono: hv.experiencia_laboral?.[0]?.telefono || '', jefe: hv.experiencia_laboral?.[0]?.jefe || '', dedicacion: hv.experiencia_laboral?.[0]?.dedicacion || '', fecha_inicio_fin: hv.experiencia_laboral?.[0]?.fecha_inicio_fin || '', funciones: hv.experiencia_laboral?.[0]?.funciones || '' },
+                  { empresa: hv.experiencia_laboral?.[1]?.empresa || '', cargo: hv.experiencia_laboral?.[1]?.cargo || '', direccion: hv.experiencia_laboral?.[1]?.direccion || '', telefono: hv.experiencia_laboral?.[1]?.telefono || '', jefe: hv.experiencia_laboral?.[1]?.jefe || '', dedicacion: hv.experiencia_laboral?.[1]?.dedicacion || '', fecha_inicio_fin: hv.experiencia_laboral?.[1]?.fecha_inicio_fin || '', funciones: hv.experiencia_laboral?.[1]?.funciones || '' },
+                  { empresa: hv.experiencia_laboral?.[2]?.empresa || '', cargo: hv.experiencia_laboral?.[2]?.cargo || '', direccion: hv.experiencia_laboral?.[2]?.direccion || '', telefono: hv.experiencia_laboral?.[2]?.telefono || '', jefe: hv.experiencia_laboral?.[2]?.jefe || '', dedicacion: hv.experiencia_laboral?.[2]?.dedicacion || '', fecha_inicio_fin: hv.experiencia_laboral?.[2]?.fecha_inicio_fin || '', funciones: hv.experiencia_laboral?.[2]?.funciones || '' },
+                ],
+            investigacion: {
+              grupo_nombre: hv.investigacion?.grupo_nombre || '',
+              grupo_tiempo: hv.investigacion?.grupo_tiempo || '',
+              proyectos: hv.investigacion?.proyectos || '',
+              tutorias_posgrado: hv.investigacion?.tutorias_posgrado || '',
+              tutorias_pregrado: hv.investigacion?.tutorias_pregrado || '',
+              par_evaluador: hv.investigacion?.par_evaluador || '',
+              informes_tecnicos: hv.investigacion?.informes_tecnicos || '',
+              publicaciones: hv.investigacion?.publicaciones || '',
+              organizaciones: hv.investigacion?.organizaciones || '',
+              ponencias: hv.investigacion?.ponencias || '',
+            },
+            referencia_familiar: {
+              nombre: hv.referencia_familiar?.nombre || '',
+              profesion: hv.referencia_familiar?.profesion || '',
+              parentesco: hv.referencia_familiar?.parentesco || '',
+              telefono: hv.referencia_familiar?.telefono || '',
+            },
+            referencia_personal: {
+              nombre: hv.referencia_personal?.nombre || '',
+              profesion: hv.referencia_personal?.profesion || '',
+              telefono: hv.referencia_personal?.telefono || '',
+            },
+          },
         })
       }
       setPasantias(resPasantias.data || [])
@@ -99,16 +259,98 @@ export default function PerfilEstudiante() {
     cargarPerfil()
   }, [])
 
+  // Helpers para actualizar campos anidados del formato institucional
+  const updateHvField = (seccion, campo, valor) => {
+    setDatosForm((prev) => ({
+      ...prev,
+      datos_formato_hv: {
+        ...prev.datos_formato_hv,
+        [seccion]: {
+          ...prev.datos_formato_hv?.[seccion],
+          [campo]: valor,
+        },
+      },
+    }))
+  }
+
+  const updateCursoField = (index, campo, valor) => {
+    setDatosForm((prev) => {
+      const cursos = [...(prev.datos_formato_hv?.cursos || [])]
+      cursos[index] = { ...cursos[index], [campo]: valor }
+      return {
+        ...prev,
+        datos_formato_hv: {
+          ...prev.datos_formato_hv,
+          cursos,
+        },
+      }
+    })
+  }
+
+  const agregarFilaCurso = () => {
+    setDatosForm((prev) => ({
+      ...prev,
+      datos_formato_hv: {
+        ...prev.datos_formato_hv,
+        cursos: [
+          ...(prev.datos_formato_hv?.cursos || []),
+          { tema: '', duracion: '', fecha: '', institucion: '', modalidad: '' },
+        ],
+      },
+    }))
+  }
+
+  const eliminarFilaCurso = (index) => {
+    setDatosForm((prev) => {
+      const cursos = (prev.datos_formato_hv?.cursos || []).filter((_, i) => i !== index)
+      return {
+        ...prev,
+        datos_formato_hv: {
+          ...prev.datos_formato_hv,
+          cursos,
+        },
+      }
+    })
+  }
+
+  const updateExpLaboralField = (index, campo, valor) => {
+    setDatosForm((prev) => {
+      const laboral = [...(prev.datos_formato_hv?.experiencia_laboral || [])]
+      laboral[index] = { ...laboral[index], [campo]: valor }
+      return {
+        ...prev,
+        datos_formato_hv: {
+          ...prev.datos_formato_hv,
+          experiencia_laboral: laboral,
+        },
+      }
+    })
+  }
+
   // Guardar datos básicos y profesionales
   const handleGuardarDatos = async (e) => {
     e.preventDefault()
+    setErroresPerfil({})
+
+    const errs = {}
+    if (datosForm.telefono && datosForm.telefono.length < 7) {
+      errs.telefono = ['El teléfono debe contener entre 7 y 10 dígitos.']
+    }
+    if (Object.keys(errs).length > 0) {
+      setErroresPerfil(errs)
+      return
+    }
+
     setGuardando(true)
     try {
       const res = await api.put('/perfil', datosForm)
       setEstudiante(res.data.estudiante)
       avisar('Perfil profesional actualizado con éxito.')
     } catch (err) {
-      avisar('Error al actualizar el perfil.', 'error')
+      if (err.response?.data?.errors) {
+        setErroresPerfil(err.response.data.errors)
+      }
+      avisar(normalizarError(err.response?.data?.message) || 'Error al actualizar el perfil.', 'error')
     } finally {
       setGuardando(false)
     }
@@ -149,21 +391,73 @@ export default function PerfilEstudiante() {
     }
   }
 
-  // Subir Firma Digital (foto/imagen)
+  // Subir Foto para Hoja de Vida (3x4) con compresión automática anti-413
+  const handleSubirFoto = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSubiendoFoto(true)
+    try {
+      const fileComprimido = await comprimirImagen(file, 1200, 0.88)
+      const data = new FormData()
+      data.append('foto', fileComprimido)
+      await api.post('/perfil/foto', data)
+      avisar('Foto de hoja de vida actualizada con éxito.')
+      cargarPerfil()
+    } catch (err) {
+      avisar(err.response?.data?.message || 'Error al subir la foto.', 'error')
+    } finally {
+      setSubiendoFoto(false)
+    }
+  }
+
+  // Rotar Foto (90°)
+  const handleRotarFoto = async () => {
+    setRotandoFoto(true)
+    try {
+      await api.post('/perfil/foto/rotar', { grados: 90 })
+      avisar('Foto rotada exitosamente.')
+      cargarPerfil()
+    } catch (err) {
+      avisar(err.response?.data?.message || 'Error al rotar la foto.', 'error')
+    } finally {
+      setRotandoFoto(false)
+    }
+  }
+
+  // Subir Firma Digital (foto/imagen) con compresión automática anti-413
   const handleSubirFirma = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const data = new FormData()
-    data.append('firma', file)
     setSubiendoArchivo(true)
     try {
-      const res = await api.post('/perfil/firma', data)
+      const fileComprimido = await comprimirImagen(file, 1200, 0.9)
+      const data = new FormData()
+      data.append('firma', fileComprimido)
+      data.append('orientacion', orientacionFirma)
+      await api.post('/perfil/firma', data)
       avisar('Firma digital actualizada con éxito.')
       cargarPerfil()
     } catch (err) {
       avisar(err.response?.data?.message || 'Error al subir la firma.', 'error')
     } finally {
       setSubiendoArchivo(false)
+    }
+  }
+
+  // Rotar Firma Digital (90°)
+  const handleRotarFirma = async () => {
+    setRotandoFirma(true)
+    try {
+      const res = await api.post('/perfil/firma/rotar', { grados: 90 })
+      if (res.data?.firma_orientacion) {
+        setOrientacionFirma(res.data.firma_orientacion)
+      }
+      avisar('Firma rotada exitosamente.')
+      cargarPerfil()
+    } catch (err) {
+      avisar(err.response?.data?.message || 'Error al rotar la firma.', 'error')
+    } finally {
+      setRotandoFirma(false)
     }
   }
 
@@ -237,6 +531,14 @@ export default function PerfilEstudiante() {
   // Registrar asistencia a pasantía
   const handleRegistrarAsistencia = async (e) => {
     e.preventDefault()
+    setErroresAsistencia({})
+
+    const horas = parseInt(formAsistencia.horas_cumplidas, 10)
+    if (isNaN(horas) || horas < 1 || horas > 24) {
+      setErroresAsistencia({ horas_cumplidas: ['Las horas cumplidas deben estar entre 1 y 24 horas por reporte.'] })
+      return
+    }
+
     try {
       const data = new FormData()
       data.append('pasantia_id', formAsistencia.pasantia_id)
@@ -260,7 +562,10 @@ export default function PerfilEstudiante() {
       }))
       cargarPerfil()
     } catch (err) {
-      avisar(err.response?.data?.message || 'Error al registrar asistencia.', 'error')
+      if (err.response?.data?.errors) {
+        setErroresAsistencia(err.response.data.errors)
+      }
+      avisar(normalizarError(err.response?.data?.message) || 'Error al registrar asistencia.', 'error')
     }
   }
 
@@ -336,10 +641,12 @@ export default function PerfilEstudiante() {
               </span>
             </div>
             <h2 className="text-2xl font-extrabold text-[#14201a] capitalize">
-              {user?.nombres} {user?.apellidos}
+              <span>{user?.nombres}</span> <span>{user?.apellidos}</span>
             </h2>
             <p className="text-sm text-[#5f6b64]">
-              {estudiante?.programa?.nombre} · Semestre {estudiante?.semestre} · Doc: <span className="font-mono font-semibold">{user?.numero_documento}</span>
+              <span>{estudiante?.programa?.nombre || 'Programa académico'}</span>
+              <span> · Semestre {estudiante?.semestre ?? '—'} · Doc: </span>
+              <span className="font-mono font-semibold">{user?.numero_documento}</span>
             </p>
           </div>
 
@@ -372,24 +679,32 @@ export default function PerfilEstudiante() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Teléfono / Celular</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Teléfono / Celular (solo números, máx 10)</label>
                   <input
                     type="text"
+                    maxLength={10}
                     value={datosForm.telefono}
-                    onChange={(e) => setDatosForm({ ...datosForm, telefono: e.target.value })}
+                    onFocus={() => setFocoCampo('perf_tel')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setDatosForm({ ...datosForm, telefono: filtrarSoloNumeros(e.target.value, 10) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
-                    placeholder="Ej. 310 123 4567"
+                    placeholder="Ej. 3101234567"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('telefono', datosForm.telefono, erroresPerfil.telefono, focoCampo === 'perf_tel')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Ciudad de Residencia</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Ciudad de Residencia (solo letras)</label>
                   <input
                     type="text"
+                    maxLength={60}
                     value={datosForm.ciudad}
-                    onChange={(e) => setDatosForm({ ...datosForm, ciudad: e.target.value })}
+                    onFocus={() => setFocoCampo('perf_ciudad')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setDatosForm({ ...datosForm, ciudad: filtrarSoloLetras(e.target.value, 60) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
-                    placeholder="Ej. Neiva, Huila"
+                    placeholder="Ej. Neiva Huila"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('cargo', datosForm.ciudad, erroresPerfil.ciudad, focoCampo === 'perf_ciudad')} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Dirección</label>
@@ -456,6 +771,913 @@ export default function PerfilEstudiante() {
                   className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl p-3 text-sm text-[#14201a]"
                   placeholder="Diplomado en Desarrollo Web, Curso de Seguridad de la Información FET..."
                 />
+              </div>
+
+              <div className="border-t border-[#dfe6e1] pt-3">
+                <h4 className="text-xs font-bold text-[#067a0a] uppercase tracking-wider mb-3">Datos del Formato Institucional FET (PA-GTH-F-10)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Fecha de Nacimiento</label>
+                    <input
+                      type="date"
+                      value={datosForm.fecha_nacimiento}
+                      onChange={(e) => setDatosForm({ ...datosForm, fecha_nacimiento: e.target.value })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Lugar de Nacimiento</label>
+                    <input
+                      type="text"
+                      maxLength={60}
+                      value={datosForm.lugar_nacimiento}
+                      onChange={(e) => setDatosForm({ ...datosForm, lugar_nacimiento: e.target.value })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                      placeholder="Ej. Neiva, Huila"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Estado Civil</label>
+                    <select
+                      value={datosForm.estado_civil}
+                      onChange={(e) => setDatosForm({ ...datosForm, estado_civil: e.target.value })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                    >
+                      <option value="Soltero(a)">Soltero(a)</option>
+                      <option value="Casado(a)">Casado(a)</option>
+                      <option value="Unión Libre">Unión Libre</option>
+                      <option value="Divorciado(a)">Divorciado(a)</option>
+                      <option value="Viudo(a)">Viudo(a)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Grupo Sanguíneo (R-H)</label>
+                    <select
+                      value={datosForm.rh}
+                      onChange={(e) => setDatosForm({ ...datosForm, rh: e.target.value })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                    >
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Contacto de Emergencia</label>
+                    <input
+                      type="text"
+                      value={datosForm.contacto_emergencia}
+                      onChange={(e) => setDatosForm({ ...datosForm, contacto_emergencia: e.target.value })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                      placeholder="Nombre de familiar / contacto"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Teléfono Emergencia</label>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      value={datosForm.telefono_emergencia}
+                      onChange={(e) => setDatosForm({ ...datosForm, telefono_emergencia: filtrarSoloNumeros(e.target.value, 10) })}
+                      className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-3.5 py-2.5 text-sm text-[#14201a]"
+                      placeholder="Ej. 3151234567"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECCIÓN 2: FORMACIÓN ACADÉMICA (PLANTILLA INSTITUCIONAL FET) */}
+              <div className="border border-[#dfe6e1] rounded-2xl p-5 bg-[#fafcfa] space-y-4">
+                <div className="flex items-center justify-between border-b border-[#dfe6e1] pb-3">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#14201a] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#08940c]"></span>
+                      2. Formación Académica (Plantilla Oficial)
+                    </h4>
+                    <p className="text-xs text-[#5f6b64]">Educación superior, técnica, diplomados y cursos. Déjalos en blanco si aún no aplican.</p>
+                  </div>
+                </div>
+
+                {/* 2.1 Educación Superior */}
+                <div className="border border-[#dfe6e1] rounded-xl bg-white p-4 space-y-3">
+                  <div
+                    onClick={() => toggleSeccion('superior')}
+                    className="flex items-center justify-between cursor-pointer select-none"
+                  >
+                    <span className="text-xs font-bold text-[#14201a] uppercase tracking-wide">
+                      2.1 Educación Superior (Maestría, Especialización, Pregrado)
+                    </span>
+                    <span className="text-xs font-bold text-[#08940c]">
+                      {seccionesAbiertas.superior ? 'Ocultar ▲' : 'Ver campos ▼'}
+                    </span>
+                  </div>
+
+                  {seccionesAbiertas.superior && (
+                    <div className="space-y-4 pt-2 border-t border-[#f0f4f1]">
+                      {/* Maestría */}
+                      <div className="p-3 bg-[#f8faf9] rounded-xl border border-[#dfe6e1] space-y-2.5">
+                        <span className="text-xs font-bold text-[#067a0a] uppercase tracking-wider block">Maestría (Opcional)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título de Maestría</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.maestria?.titulo || ''}
+                              onChange={(e) => updateHvField('maestria', 'titulo', e.target.value)}
+                              placeholder="Ej. Magíster en Ingeniería de Software"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.maestria?.institucion || ''}
+                              onChange={(e) => updateHvField('maestria', 'institucion', e.target.value)}
+                              placeholder="Ej. Universidad Nacional"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Grado</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.maestria?.fecha_grado || ''}
+                              onChange={(e) => updateHvField('maestria', 'fecha_grado', e.target.value)}
+                              placeholder="Ej. 15/12/2023 o 2023"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">País y Ciudad</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.maestria?.ciudad || ''}
+                              onChange={(e) => updateHvField('maestria', 'ciudad', e.target.value)}
+                              placeholder="Ej. Bogotá, Colombia"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título Obtenido</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.maestria?.titulo_obtenido || ''}
+                              onChange={(e) => updateHvField('maestria', 'titulo_obtenido', e.target.value)}
+                              placeholder="Ej. Magíster"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Especialización */}
+                      <div className="p-3 bg-[#f8faf9] rounded-xl border border-[#dfe6e1] space-y-2.5">
+                        <span className="text-xs font-bold text-[#067a0a] uppercase tracking-wider block">Especialización (Opcional)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título de Especialización</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.especializacion?.titulo || ''}
+                              onChange={(e) => updateHvField('especializacion', 'titulo', e.target.value)}
+                              placeholder="Ej. Especialista en Seguridad de la Información"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.especializacion?.institucion || ''}
+                              onChange={(e) => updateHvField('especializacion', 'institucion', e.target.value)}
+                              placeholder="Ej. Fundación Escuela Tecnológica de Neiva - FET"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Grado</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.especializacion?.fecha_grado || ''}
+                              onChange={(e) => updateHvField('especializacion', 'fecha_grado', e.target.value)}
+                              placeholder="Ej. 2024"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">País y Ciudad</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.especializacion?.ciudad || ''}
+                              onChange={(e) => updateHvField('especializacion', 'ciudad', e.target.value)}
+                              placeholder="Ej. Neiva, Colombia"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título Obtenido</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.especializacion?.titulo_obtenido || ''}
+                              onChange={(e) => updateHvField('especializacion', 'titulo_obtenido', e.target.value)}
+                              placeholder="Ej. Especialista"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pregrado Adicional / Especificación */}
+                      <div className="p-3 bg-[#f8faf9] rounded-xl border border-[#dfe6e1] space-y-2.5">
+                        <span className="text-xs font-bold text-[#067a0a] uppercase tracking-wider block">Pregrado (Opcional - por defecto se toma tu carrera actual FET)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Carrera / Título</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.pregrado?.carrera || ''}
+                              onChange={(e) => updateHvField('pregrado', 'carrera', e.target.value)}
+                              placeholder={estudiante?.programa?.nombre || 'Ej. Ingeniería de Software'}
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.pregrado?.institucion || ''}
+                              onChange={(e) => updateHvField('pregrado', 'institucion', e.target.value)}
+                              placeholder="Fundación Escuela Tecnológica de Neiva - FET"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Grado</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.pregrado?.fecha_grado || ''}
+                              onChange={(e) => updateHvField('pregrado', 'fecha_grado', e.target.value)}
+                              placeholder="Ej. En curso / 2026"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">País y Ciudad</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.pregrado?.ciudad || ''}
+                              onChange={(e) => updateHvField('pregrado', 'ciudad', e.target.value)}
+                              placeholder="Neiva, Colombia"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título Obtenido</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.pregrado?.titulo_obtenido || ''}
+                              onChange={(e) => updateHvField('pregrado', 'titulo_obtenido', e.target.value)}
+                              placeholder="Ej. Ingeniero(a)"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2.2 Formación Técnica y Tecnológica */}
+                <div className="border border-[#dfe6e1] rounded-xl bg-white p-4 space-y-3">
+                  <div
+                    onClick={() => toggleSeccion('tecnica')}
+                    className="flex items-center justify-between cursor-pointer select-none"
+                  >
+                    <span className="text-xs font-bold text-[#14201a] uppercase tracking-wide">
+                      2.2 Formación Técnica y Tecnológica (Opcional)
+                    </span>
+                    <span className="text-xs font-bold text-[#08940c]">
+                      {seccionesAbiertas.tecnica ? 'Ocultar ▲' : 'Ver campos ▼'}
+                    </span>
+                  </div>
+
+                  {seccionesAbiertas.tecnica && (
+                    <div className="space-y-4 pt-2 border-t border-[#f0f4f1]">
+                      {/* Tecnólogo */}
+                      <div className="p-3 bg-[#f8faf9] rounded-xl border border-[#dfe6e1] space-y-2.5">
+                        <span className="text-xs font-bold text-[#067a0a] uppercase tracking-wider block">Tecnólogo (Opcional)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.titulo || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'titulo', e.target.value)}
+                              placeholder="Ej. Tecnólogo en Desarrollo de Software"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.institucion || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'institucion', e.target.value)}
+                              placeholder="Ej. FET / SENA"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Grado</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.fecha_grado || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'fecha_grado', e.target.value)}
+                              placeholder="Ej. 2022"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">País y Ciudad</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.ciudad || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'ciudad', e.target.value)}
+                              placeholder="Ej. Neiva, Colombia"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título Obtenido</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.titulo_obtenido || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'titulo_obtenido', e.target.value)}
+                              placeholder="Ej. Tecnólogo"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Modalidad de Estudio</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnologo?.modalidad || ''}
+                              onChange={(e) => updateHvField('tecnologo', 'modalidad', e.target.value)}
+                              placeholder="Ej. Presencial / Virtual"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Técnico */}
+                      <div className="p-3 bg-[#f8faf9] rounded-xl border border-[#dfe6e1] space-y-2.5">
+                        <span className="text-xs font-bold text-[#067a0a] uppercase tracking-wider block">Técnico (Opcional)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.titulo || ''}
+                              onChange={(e) => updateHvField('tecnico', 'titulo', e.target.value)}
+                              placeholder="Ej. Técnico en Sistemas"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.institucion || ''}
+                              onChange={(e) => updateHvField('tecnico', 'institucion', e.target.value)}
+                              placeholder="Ej. SENA / Colegio Técnico"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Grado</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.fecha_grado || ''}
+                              onChange={(e) => updateHvField('tecnico', 'fecha_grado', e.target.value)}
+                              placeholder="Ej. 2020"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">País y Ciudad</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.ciudad || ''}
+                              onChange={(e) => updateHvField('tecnico', 'ciudad', e.target.value)}
+                              placeholder="Ej. Neiva, Colombia"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Título Obtenido</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.titulo_obtenido || ''}
+                              onChange={(e) => updateHvField('tecnico', 'titulo_obtenido', e.target.value)}
+                              placeholder="Ej. Técnico"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Modalidad de Estudio</label>
+                            <input
+                              type="text"
+                              value={datosForm.datos_formato_hv?.tecnico?.modalidad || ''}
+                              onChange={(e) => updateHvField('tecnico', 'modalidad', e.target.value)}
+                              placeholder="Ej. Presencial"
+                              className="w-full bg-white border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Diplomados, Cursos, Seminarios y Actualizaciones */}
+                <div className="border border-[#dfe6e1] rounded-xl bg-white p-4 space-y-3">
+                  <div
+                    onClick={() => toggleSeccion('cursos')}
+                    className="flex items-center justify-between cursor-pointer select-none"
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-[#14201a] uppercase tracking-wide block">
+                        Diplomados, Cursos, Seminarios y Actualizaciones
+                      </span>
+                      <span className="text-[11px] text-[#5f6b64]">
+                        Tabla oficial de capacitaciones ({(datosForm.datos_formato_hv?.cursos || []).length} filas)
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold text-[#08940c]">
+                      {seccionesAbiertas.cursos ? 'Ocultar ▲' : 'Ver / Editar ▼'}
+                    </span>
+                  </div>
+
+                  {seccionesAbiertas.cursos && (
+                    <div className="space-y-3 pt-2 border-t border-[#f0f4f1]">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#f8faf9] text-[#14201a] border-b border-[#dfe6e1]">
+                              <th className="p-2 font-bold uppercase text-[10px]">Tema / Nombre</th>
+                              <th className="p-2 font-bold uppercase text-[10px] w-24">Duración</th>
+                              <th className="p-2 font-bold uppercase text-[10px] w-24">Fecha</th>
+                              <th className="p-2 font-bold uppercase text-[10px]">Institución</th>
+                              <th className="p-2 font-bold uppercase text-[10px] w-28">Modalidad</th>
+                              <th className="p-2 w-10"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#dfe6e1]">
+                            {(datosForm.datos_formato_hv?.cursos || []).map((c, idx) => (
+                              <tr key={idx} className="hover:bg-[#fafcfa]">
+                                <td className="p-1.5">
+                                  <input
+                                    type="text"
+                                    value={c.tema || ''}
+                                    onChange={(e) => updateCursoField(idx, 'tema', e.target.value)}
+                                    placeholder="Ej. Curso de React Native"
+                                    className="w-full bg-white border border-[#dfe6e1] rounded-lg px-2 py-1 text-xs"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="text"
+                                    value={c.duracion || ''}
+                                    onChange={(e) => updateCursoField(idx, 'duracion', e.target.value)}
+                                    placeholder="40 horas"
+                                    className="w-full bg-white border border-[#dfe6e1] rounded-lg px-2 py-1 text-xs"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="text"
+                                    value={c.fecha || ''}
+                                    onChange={(e) => updateCursoField(idx, 'fecha', e.target.value)}
+                                    placeholder="2024"
+                                    className="w-full bg-white border border-[#dfe6e1] rounded-lg px-2 py-1 text-xs"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="text"
+                                    value={c.institucion || ''}
+                                    onChange={(e) => updateCursoField(idx, 'institucion', e.target.value)}
+                                    placeholder="SENA / FET"
+                                    className="w-full bg-white border border-[#dfe6e1] rounded-lg px-2 py-1 text-xs"
+                                  />
+                                </td>
+                                <td className="p-1.5">
+                                  <input
+                                    type="text"
+                                    value={c.modalidad || ''}
+                                    onChange={(e) => updateCursoField(idx, 'modalidad', e.target.value)}
+                                    placeholder="Virtual"
+                                    className="w-full bg-white border border-[#dfe6e1] rounded-lg px-2 py-1 text-xs"
+                                  />
+                                </td>
+                                <td className="p-1.5 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => eliminarFilaCurso(idx)}
+                                    className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 rounded text-xs cursor-pointer"
+                                    title="Eliminar fila"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex justify-start">
+                        <button
+                          type="button"
+                          onClick={agregarFilaCurso}
+                          className="px-3 py-1.5 rounded-lg bg-[#e8f8ea] text-[#067a0a] hover:bg-[#d5f3d8] font-bold text-xs border border-[#08940c]/30 cursor-pointer flex items-center gap-1 transition-all"
+                        >
+                          <span>+</span>
+                          <span>Agregar otra fila de curso</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SECCIÓN 3: EXPERIENCIA LABORAL ADICIONAL (FORMATO INSTITUCIONAL) */}
+              <div className="border border-[#dfe6e1] rounded-2xl p-5 bg-[#fafcfa] space-y-4">
+                <div
+                  onClick={() => toggleSeccion('laboral')}
+                  className="flex items-center justify-between cursor-pointer select-none"
+                >
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#14201a] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#08940c]"></span>
+                      3. Experiencia Laboral Institucional (Opcional - Hasta 3 cargos)
+                    </h4>
+                    <p className="text-xs text-[#5f6b64]">Registra cargos y empleos para el formato. Las que dejes vacías aparecerán en blanco.</p>
+                  </div>
+                  <span className="text-xs font-bold text-[#08940c]">
+                    {seccionesAbiertas.laboral ? 'Ocultar ▲' : 'Ver campos ▼'}
+                  </span>
+                </div>
+
+                {seccionesAbiertas.laboral && (
+                  <div className="space-y-4 pt-2 border-t border-[#f0f4f1]">
+                    {[0, 1, 2].map((idx) => {
+                      const exp = datosForm.datos_formato_hv?.experiencia_laboral?.[idx] || {}
+                      return (
+                        <div key={idx} className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                          <span className="text-xs font-extrabold text-[#067a0a] uppercase tracking-wider block">
+                            Experiencia Laboral #{idx + 1}
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Institución / Empresa</label>
+                              <input
+                                type="text"
+                                value={exp.empresa || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'empresa', e.target.value)}
+                                placeholder="Ej. Soluciones TIC S.A.S."
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Nombre del Cargo</label>
+                              <input
+                                type="text"
+                                value={exp.cargo || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'cargo', e.target.value)}
+                                placeholder="Ej. Auxiliar de Desarrollo"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Dirección</label>
+                              <input
+                                type="text"
+                                value={exp.direccion || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'direccion', e.target.value)}
+                                placeholder="Ej. Cra 5 # 12-40"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Teléfonos</label>
+                              <input
+                                type="text"
+                                value={exp.telefono || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'telefono', e.target.value)}
+                                placeholder="Ej. 3110000000"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Nombre del Jefe Inmediato</label>
+                              <input
+                                type="text"
+                                value={exp.jefe || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'jefe', e.target.value)}
+                                placeholder="Ej. Ing. Carlos Pérez"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Dedicación</label>
+                              <input
+                                type="text"
+                                value={exp.dedicacion || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'dedicacion', e.target.value)}
+                                placeholder="Ej. Tiempo Completo / Prácticas"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Fecha de Inicio y Terminación</label>
+                              <input
+                                type="text"
+                                value={exp.fecha_inicio_fin || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'fecha_inicio_fin', e.target.value)}
+                                placeholder="Ej. Enero 2023 - Diciembre 2023"
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Funciones Desarrolladas</label>
+                              <textarea
+                                rows="2"
+                                value={exp.funciones || ''}
+                                onChange={(e) => updateExpLaboralField(idx, 'funciones', e.target.value)}
+                                placeholder="Describe brevemente tus funciones principales en este cargo..."
+                                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl p-2.5 text-xs text-[#14201a]"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* SECCIÓN 4: EXPERIENCIA ACADÉMICA EN INVESTIGACTIVA */}
+              <div className="border border-[#dfe6e1] rounded-2xl p-5 bg-[#fafcfa] space-y-4">
+                <div
+                  onClick={() => toggleSeccion('investigacion')}
+                  className="flex items-center justify-between cursor-pointer select-none"
+                >
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#14201a] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#08940c]"></span>
+                      4. Experiencia Académica en Investigactiva (Opcional)
+                    </h4>
+                    <p className="text-xs text-[#5f6b64]">Semilleros, proyectos, ponencias y publicaciones. Puedes dejar en blanco lo que no aplique.</p>
+                  </div>
+                  <span className="text-xs font-bold text-[#08940c]">
+                    {seccionesAbiertas.investigacion ? 'Ocultar ▲' : 'Ver campos ▼'}
+                  </span>
+                </div>
+
+                {seccionesAbiertas.investigacion && (
+                  <div className="space-y-4 pt-2 border-t border-[#f0f4f1]">
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">4.1 Pertenencia a Grupos de Investigación</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Nombre del Grupo</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.grupo_nombre || ''}
+                            onChange={(e) => updateHvField('investigacion', 'grupo_nombre', e.target.value)}
+                            placeholder="Ej. Grupo de Investigación GESTI / FET"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Tiempo de Vinculación</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.grupo_tiempo || ''}
+                            onChange={(e) => updateHvField('investigacion', 'grupo_tiempo', e.target.value)}
+                            placeholder="Ej. 1 año / 2023 - 2024"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-2">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">4.2 Proyectos de Investigación Desarrollados</span>
+                      <textarea
+                        rows="2"
+                        value={datosForm.datos_formato_hv?.investigacion?.proyectos || ''}
+                        onChange={(e) => updateHvField('investigacion', 'proyectos', e.target.value)}
+                        placeholder="Nombre y descripción de proyectos de investigación en los que has participado..."
+                        className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl p-2.5 text-xs text-[#14201a]"
+                      />
+                    </div>
+
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">4.3 Dirección / Tutorías Concluidas</span>
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Tutorías trabajos de culminación de posgrado</label>
+                        <input
+                          type="text"
+                          value={datosForm.datos_formato_hv?.investigacion?.tutorias_posgrado || ''}
+                          onChange={(e) => updateHvField('investigacion', 'tutorias_posgrado', e.target.value)}
+                          placeholder="Dejar en blanco si no aplica"
+                          className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Tutorías trabajos de culminación de pregrado</label>
+                        <input
+                          type="text"
+                          value={datosForm.datos_formato_hv?.investigacion?.tutorias_pregrado || ''}
+                          onChange={(e) => updateHvField('investigacion', 'tutorias_pregrado', e.target.value)}
+                          placeholder="Dejar en blanco si no aplica"
+                          className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">4.4 a 4.8 Otros Logros de Investigación</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">4.4 Par Evaluador / Jurado</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.par_evaluador || ''}
+                            onChange={(e) => updateHvField('investigacion', 'par_evaluador', e.target.value)}
+                            placeholder="Dejar en blanco si no aplica"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">4.5 Trabajos e Informes Técnicos</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.informes_tecnicos || ''}
+                            onChange={(e) => updateHvField('investigacion', 'informes_tecnicos', e.target.value)}
+                            placeholder="Dejar en blanco si no aplica"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">4.6 Publicaciones</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.publicaciones || ''}
+                            onChange={(e) => updateHvField('investigacion', 'publicaciones', e.target.value)}
+                            placeholder="Dejar en blanco si no aplica"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">4.7 Pertenencia a Organizaciones</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.organizaciones || ''}
+                            onChange={(e) => updateHvField('investigacion', 'organizaciones', e.target.value)}
+                            placeholder="Dejar en blanco si no aplica"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">4.8 Ponencias</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.investigacion?.ponencias || ''}
+                            onChange={(e) => updateHvField('investigacion', 'ponencias', e.target.value)}
+                            placeholder="Dejar en blanco si no aplica"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SECCIÓN 5: REFERENCIAS (FAMILIAR Y PERSONAL) */}
+              <div className="border border-[#dfe6e1] rounded-2xl p-5 bg-[#fafcfa] space-y-4">
+                <div
+                  onClick={() => toggleSeccion('referencias')}
+                  className="flex items-center justify-between cursor-pointer select-none"
+                >
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#14201a] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#08940c]"></span>
+                      5. Referencias (Familiar y Personal)
+                    </h4>
+                    <p className="text-xs text-[#5f6b64]">Datos de referencia para la sección final del formato institucional.</p>
+                  </div>
+                  <span className="text-xs font-bold text-[#08940c]">
+                    {seccionesAbiertas.referencias ? 'Ocultar ▲' : 'Ver campos ▼'}
+                  </span>
+                </div>
+
+                {seccionesAbiertas.referencias && (
+                  <div className="space-y-4 pt-2 border-t border-[#f0f4f1]">
+                    {/* Referencia Familiar */}
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">Referencia Familiar</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_familiar?.nombre || ''}
+                            onChange={(e) => updateHvField('referencia_familiar', 'nombre', e.target.value)}
+                            placeholder={datosForm.contacto_emergencia || 'Ej. María Pérez Gómez'}
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Profesión u Ocupación</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_familiar?.profesion || ''}
+                            onChange={(e) => updateHvField('referencia_familiar', 'profesion', e.target.value)}
+                            placeholder="Ej. Docente / Comerciante"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Parentesco</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_familiar?.parentesco || ''}
+                            onChange={(e) => updateHvField('referencia_familiar', 'parentesco', e.target.value)}
+                            placeholder="Ej. Madre / Padre / Hermano(a)"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Teléfono</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_familiar?.telefono || ''}
+                            onChange={(e) => updateHvField('referencia_familiar', 'telefono', e.target.value)}
+                            placeholder={datosForm.telefono_emergencia || 'Ej. 3150000000'}
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Referencia Personal */}
+                    <div className="p-4 bg-white rounded-xl border border-[#dfe6e1] space-y-3">
+                      <span className="text-xs font-bold text-[#067a0a] uppercase block">Referencia Personal</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_personal?.nombre || ''}
+                            onChange={(e) => updateHvField('referencia_personal', 'nombre', e.target.value)}
+                            placeholder="Ej. Juan Manuel Torres"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Profesión u Ocupación</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_personal?.profesion || ''}
+                            onChange={(e) => updateHvField('referencia_personal', 'profesion', e.target.value)}
+                            placeholder="Ej. Ingeniero de Sistemas"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#5f6b64] uppercase mb-1">Teléfono</label>
+                          <input
+                            type="text"
+                            value={datosForm.datos_formato_hv?.referencia_personal?.telefono || ''}
+                            onChange={(e) => updateHvField('referencia_personal', 'telefono', e.target.value)}
+                            placeholder="Ej. 3100000000"
+                            className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] rounded-xl px-3 py-2 text-xs text-[#14201a]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end pt-2">
@@ -593,8 +1815,54 @@ export default function PerfilEstudiante() {
             </section>
           </div>
 
-          {/* Columna Derecha: Firma Digital, Hoja de Vida PDF externa y Pasantías */}
+          {/* Columna Derecha: Foto 3x4, Firma Digital, Hoja de Vida PDF externa y Pasantías */}
           <div className="space-y-6">
+            {/* Foto de Hoja de Vida (3x4) */}
+            <div className="bg-white border border-[#dfe6e1] rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="border-b border-[#dfe6e1] pb-2">
+                <h3 className="text-base font-extrabold text-[#14201a]">Foto Hoja de Vida (3x4)</h3>
+                <p className="text-xs text-[#5f6b64]">Sube tu fotografía formal para la plantilla institucional de la FET.</p>
+              </div>
+
+              <div className="flex flex-col items-center">
+                <div className="w-[105px] h-[135px] border-2 border-[#648F59] rounded-xl overflow-hidden bg-[#fafcfa] flex items-center justify-center shadow-sm">
+                  {(user?.foto || estudiante?.foto) ? (
+                    <img
+                      src={urlArchivo(user?.foto || estudiante?.foto)}
+                      alt="Foto Estudiante"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center p-2 text-[#648F59] font-bold text-xs">
+                      FOTO<br />3 x 4
+                    </div>
+                  )}
+                </div>
+                {(user?.foto || estudiante?.foto) ? (
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <span className="text-[11px] font-bold text-[#067a0a]">✓ Foto guardada</span>
+                    <button
+                      type="button"
+                      onClick={handleRotarFoto}
+                      disabled={rotandoFoto}
+                      className="px-2.5 py-1 text-[11px] font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-lg border border-[#08940c]/30 cursor-pointer flex items-center gap-1 transition-all"
+                      title="Girar 90 grados si se cargó de lado"
+                    >
+                      <span>🔄</span>
+                      <span>{rotandoFoto ? 'Girando...' : 'Rotar 90°'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#5f6b64] mt-2">Sin foto cargada aún</p>
+                )}
+              </div>
+
+              <label className="block w-full py-2.5 px-4 text-center rounded-xl bg-[#e8f8ea] hover:bg-[#d5f3d8] text-[#067a0a] text-xs font-bold border border-[#08940c]/30 cursor-pointer transition-all">
+                <span>{subiendoFoto ? 'Cargando foto...' : ((user?.foto || estudiante?.foto) ? 'Cambiar Foto 3x4' : 'Subir Foto 3x4')}</span>
+                <input type="file" accept="image/*" onChange={handleSubirFoto} className="hidden" />
+              </label>
+            </div>
+
             {/* Foto de Firma Digital */}
             <div className="bg-white border border-[#dfe6e1] rounded-3xl p-6 shadow-sm space-y-4">
               <div className="border-b border-[#dfe6e1] pb-2">
@@ -603,19 +1871,45 @@ export default function PerfilEstudiante() {
               </div>
 
               {user?.firma_digital ? (
-                <div className="p-3 bg-[#f8faf9] rounded-2xl border border-[#dfe6e1] flex flex-col items-center">
-                  <img
-                    src={urlArchivo(user.firma_digital)}
-                    alt="Firma Digital"
-                    className="max-h-24 object-contain"
-                  />
-                  <p className="text-[11px] font-bold text-[#067a0a] mt-2">✓ Firma guardada</p>
+                <div className="p-4 bg-[#f8faf9] rounded-2xl border border-[#dfe6e1] flex flex-col items-center">
+                  <div className="w-full max-w-[260px] h-[90px] flex items-center justify-center p-2 bg-white rounded-xl border border-dashed border-[#08940c]/40">
+                    <img
+                      src={urlArchivo(user.firma_digital)}
+                      alt="Firma Digital"
+                      className="max-h-[80px] max-w-full object-contain"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between w-full mt-3 pt-2 border-t border-[#dfe6e1]">
+                    <span className="text-[11px] font-bold text-[#067a0a]">✓ Firma guardada</span>
+                    <button
+                      type="button"
+                      onClick={handleRotarFirma}
+                      disabled={rotandoFirma}
+                      className="px-2.5 py-1 text-[11px] font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-lg border border-[#08940c]/30 cursor-pointer flex items-center gap-1 transition-all"
+                      title="Girar 90 grados si se visualiza vertical u horizontal invertida"
+                    >
+                      <span>🔄</span>
+                      <span>{rotandoFirma ? 'Girando...' : 'Rotar 90°'}</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="p-4 bg-[#fdecea] rounded-2xl border border-red-200 text-center text-xs text-[#d93025]">
                   Aún no has registrado tu foto de firma.
                 </div>
               )}
+
+              <div className="flex items-center justify-between text-xs font-semibold text-[#5f6b64]">
+                <span>Orientación deseada:</span>
+                <select
+                  value={orientacionFirma}
+                  onChange={(e) => setOrientacionFirma(e.target.value)}
+                  className="bg-[#f8faf9] border border-[#dfe6e1] text-xs font-bold rounded-lg px-2 py-1 text-[#14201a]"
+                >
+                  <option value="horizontal">Horizontal (Normal)</option>
+                  <option value="vertical">Vertical</option>
+                </select>
+              </div>
 
               <label className="block w-full py-2.5 px-4 text-center rounded-xl bg-[#e8f8ea] hover:bg-[#d5f3d8] text-[#067a0a] text-xs font-bold border border-[#08940c]/30 cursor-pointer transition-all">
                 <span>{user?.firma_digital ? 'Cambiar Foto de Firma' : 'Subir Foto de Firma'}</span>
@@ -626,14 +1920,14 @@ export default function PerfilEstudiante() {
             {/* Hoja de Vida en PDF personalizado (RF06) */}
             <div className="bg-white border border-[#dfe6e1] rounded-3xl p-6 shadow-sm space-y-4">
               <div className="border-b border-[#dfe6e1] pb-2">
-                <h3 className="text-base font-extrabold text-[#14201a]">Hoja de Vida en PDF (Carga Externa)</h3>
-                <p className="text-xs text-[#5f6b64]">Opcionalmente puedes subir un PDF propio de tu hoja de vida diseñado previamente.</p>
+                <h3 className="text-base font-extrabold text-[#14201a]">Hoja de Vida en PDF (Requisito)</h3>
+                <p className="text-xs text-[#5f6b64]">Para que los coordinadores y empresarios puedan consultar o descargar tu hoja de vida, debes tenerla cargada aquí.</p>
               </div>
 
               {estudiante?.hoja_vida_pdf ? (
-                <div className="p-3 bg-[#f8faf9] rounded-2xl border border-[#dfe6e1] flex items-center justify-between">
+                <div className="p-3 bg-[#e8f8ea] rounded-2xl border border-[#08940c]/30 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold text-[#14201a]">PDF cargado</p>
+                    <p className="text-xs font-bold text-[#067a0a]">✓ Hoja de vida activa y visible</p>
                     <a
                       href={urlArchivo(estudiante.hoja_vida_pdf)}
                       target="_blank"
@@ -643,14 +1937,17 @@ export default function PerfilEstudiante() {
                       Ver documento PDF ↗
                     </a>
                   </div>
-                  <span className="text-xs text-[#067a0a] font-bold">✓ Listo</span>
+                  <span className="text-xs text-[#067a0a] font-bold">Habilitada</span>
                 </div>
               ) : (
-                <p className="text-xs text-[#5f6b64]">No has cargado un archivo PDF adicional.</p>
+                <div className="p-3 bg-[#fff8e1] rounded-2xl border border-amber-300 text-xs text-amber-800 space-y-1">
+                  <p className="font-bold">⚠️ Pendiente por subir</p>
+                  <p className="text-[11px] leading-relaxed">Los coordinadores (Admin) y empresas no podrán ver ni descargar tu hoja de vida hasta que cargues tu PDF aquí.</p>
+                </div>
               )}
 
               <label className="block w-full py-2.5 px-4 text-center rounded-xl bg-white hover:bg-[#f8faf9] text-[#14201a] text-xs font-bold border border-[#dfe6e1] cursor-pointer transition-all">
-                <span>Subir / Reemplazar PDF</span>
+                <span>{subiendoArchivo ? 'Subiendo...' : (estudiante?.hoja_vida_pdf ? 'Reemplazar PDF de Hoja de Vida' : 'Subir PDF de Hoja de Vida')}</span>
                 <input type="file" accept="application/pdf" onChange={handleSubirHvPdf} className="hidden" />
               </label>
             </div>
@@ -877,16 +2174,19 @@ export default function PerfilEstudiante() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Horas Cumplidas</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Horas Cumplidas (1 a 24)</label>
                   <input
                     type="number"
                     min="1"
                     max="24"
                     required
                     value={formAsistencia.horas_cumplidas}
-                    onChange={(e) => setFormAsistencia({ ...formAsistencia, horas_cumplidas: parseInt(e.target.value) || 1 })}
+                    onFocus={() => setFocoCampo('asist_horas')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setFormAsistencia({ ...formAsistencia, horas_cumplidas: Math.max(1, Math.min(24, parseInt(e.target.value) || 1)) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3 py-2 text-sm text-[#14201a]"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('horas', formAsistencia.horas_cumplidas, erroresAsistencia.horas_cumplidas, focoCampo === 'asist_horas')} />
                 </div>
               </div>
 

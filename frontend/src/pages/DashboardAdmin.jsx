@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api/axios'
-import { esPaseHabilitado } from '../api/archivos'
+import { esPaseHabilitado, urlArchivo, descargarPdf } from '../api/archivos'
 import HojaVidaVista from '../components/HojaVidaVista'
+import ReglaInput from '../components/ReglaInput'
+import { comprimirImagen } from '../utils/imageCompressor'
+import {
+  filtrarSoloNumeros,
+  filtrarSoloLetras,
+  filtrarCodigoEstudiantil,
+  filtrarPassword,
+  obtenerReglaCampo,
+  normalizarError,
+} from '../utils/validationHelper'
 
 export default function DashboardAdmin() {
   const { user, logout } = useAuth()
@@ -11,12 +21,29 @@ export default function DashboardAdmin() {
   const [cargando, setCargando] = useState(true)
   const [filtro, setFiltro] = useState('')
   const [notificacion, setNotificacion] = useState(null)
+  const [focoCampo, setFocoCampo] = useState('')
 
   // Modales
   const [modalRegistro, setModalRegistro] = useState(false)
   const [modalEdicion, setModalEdicion] = useState(false)
   const [estudianteEditando, setEstudianteEditando] = useState(null)
   const [estudianteHvModal, setEstudianteHvModal] = useState(null)
+
+  // Firma institucional del Administrador
+  const [subiendoFirma, setSubiendoFirma] = useState(false)
+  const [rotandoFirma, setRotandoFirma] = useState(false)
+  const [firmaAdmin, setFirmaAdmin] = useState(user?.firma_digital || null)
+
+  // Seguimiento de pasantías y horas del estudiante
+  const [estudianteSeguimiento, setEstudianteSeguimiento] = useState(null)
+  const [pasantiasSeguimiento, setPasantiasSeguimiento] = useState([])
+  const [cargandoSeguimiento, setCargandoSeguimiento] = useState(false)
+
+  // Modal para revisar, aplicar Check de Habilitado y firmar asistencia por Admin
+  const [asistenciaSeleccionada, setAsistenciaSeleccionada] = useState(null)
+  const [checkHabilitado, setCheckHabilitado] = useState(false)
+  const [observaciones, setObservaciones] = useState('')
+  const [procesandoAsistencia, setProcesandoAsistencia] = useState(false)
 
   // Módulo de Verificación Rápida (RF05)
   const [docBusqueda, setDocBusqueda] = useState('')
@@ -85,11 +112,105 @@ export default function DashboardAdmin() {
     }
   }
 
+  // Subir foto de firma del administrador con compresión
+  const handleSubirFirma = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSubiendoFirma(true)
+    try {
+      const fileComprimido = await comprimirImagen(file, 1200, 0.9)
+      const data = new FormData()
+      data.append('firma', fileComprimido)
+      const res = await api.post('/perfil/firma', data)
+      mostrarNotificacion('Foto de firma institucional guardada exitosamente.', 'exito')
+      setFirmaAdmin(res.data.firma_digital + '?t=' + Date.now())
+    } catch (err) {
+      mostrarNotificacion(err.response?.data?.message || 'Error al subir la firma.', 'error')
+    } finally {
+      setSubiendoFirma(false)
+    }
+  }
+
+  // Rotar firma del administrador (90°)
+  const handleRotarFirma = async () => {
+    setRotandoFirma(true)
+    try {
+      const res = await api.post('/perfil/firma/rotar', { grados: 90 })
+      setFirmaAdmin(res.data.firma_digital + '?t=' + Date.now())
+      mostrarNotificacion('Firma institucional rotada exitosamente.', 'exito')
+    } catch (err) {
+      mostrarNotificacion(err.response?.data?.message || 'Error al rotar la firma.', 'error')
+    } finally {
+      setRotandoFirma(false)
+    }
+  }
+
+  // Abrir modal de seguimiento de horas y pasantías para un estudiante
+  const handleAbrirSeguimiento = async (estudiante) => {
+    setEstudianteSeguimiento(estudiante)
+    setCargandoSeguimiento(true)
+    try {
+      const res = await api.get(`/estudiantes/${estudiante.id}/pasantias`)
+      setPasantiasSeguimiento(res.data || [])
+    } catch (err) {
+      mostrarNotificacion('Error al cargar pasantías del estudiante.', 'error')
+    } finally {
+      setCargandoSeguimiento(false)
+    }
+  }
+
+  // Guardar aprobación y firma del Administrador / Docente FET en la asistencia
+  const handleGuardarAprobacionAdmin = async (estadoAprobacion) => {
+    if (estadoAprobacion === 'aprobado' && !checkHabilitado) {
+      mostrarNotificacion('Debes marcar el "Check de Habilitación Institucional" para aprobar el formato.', 'error')
+      return
+    }
+    const firmaActual = firmaAdmin || user?.firma_digital
+    if (estadoAprobacion === 'aprobado' && !firmaActual) {
+      mostrarNotificacion('Debes subir tu foto de firma antes de aprobar formatos de asistencia.', 'error')
+      return
+    }
+
+    setProcesandoAsistencia(true)
+    try {
+      await api.patch(`/pasantias/asistencias/${asistenciaSeleccionada.id}/aprobar`, {
+        check_habilitado: estadoAprobacion === 'aprobado',
+        estado: estadoAprobacion,
+        observaciones: observaciones,
+      })
+      mostrarNotificacion(`Formato ${estadoAprobacion === 'aprobado' ? 'aprobado y firmado institucionalmente' : 'rechazado'} con éxito.`, 'exito')
+      setAsistenciaSeleccionada(null)
+      if (estudianteSeguimiento) {
+        const res = await api.get(`/estudiantes/${estudianteSeguimiento.id}/pasantias`)
+        setPasantiasSeguimiento(res.data || [])
+      }
+    } catch (err) {
+      mostrarNotificacion(err.response?.data?.message || 'Error al procesar formato de asistencia.', 'error')
+    } finally {
+      setProcesandoAsistencia(false)
+    }
+  }
+
   // RF02 - Registrar nuevo estudiante
   const handleCrearEstudiante = async (e) => {
     e.preventDefault()
     setGuardando(true)
     setErroresForm({})
+
+    // Validaciones preventivas de negocio
+    const erroresPrevios = {}
+    if (!nuevoEstudiante.nombres.trim()) erroresPrevios.nombres = ['Los nombres son obligatorios (solo letras).']
+    if (!nuevoEstudiante.apellidos.trim()) erroresPrevios.apellidos = ['Los apellidos son obligatorios (solo letras).']
+    if (nuevoEstudiante.numero_documento.length < 5) erroresPrevios.numero_documento = ['El documento debe tener entre 5 y 10 dígitos numéricos.']
+    if (nuevoEstudiante.password.length < 8 || nuevoEstudiante.password.length > 20) erroresPrevios.password = ['La contraseña debe tener mínimo 8 y máximo 20 caracteres.']
+    if (!nuevoEstudiante.codigo_estudiantil.trim()) erroresPrevios.codigo_estudiantil = ['El código estudiantil es obligatorio (máx. 10 caracteres).']
+
+    if (Object.keys(erroresPrevios).length > 0) {
+      setErroresForm(erroresPrevios)
+      setGuardando(false)
+      return
+    }
+
     try {
       await api.post('/estudiantes', nuevoEstudiante)
       mostrarNotificacion('Estudiante registrado exitosamente.', 'exito')
@@ -110,7 +231,7 @@ export default function DashboardAdmin() {
       if (err.response?.data?.errors) {
         setErroresForm(err.response.data.errors)
       } else {
-        mostrarNotificacion(err.response?.data?.message || 'Error al registrar estudiante.', 'error')
+        mostrarNotificacion(normalizarError(err.response?.data?.message) || 'Error al registrar estudiante.', 'error')
       }
     } finally {
       setGuardando(false)
@@ -122,6 +243,19 @@ export default function DashboardAdmin() {
     e.preventDefault()
     setGuardando(true)
     setErroresForm({})
+
+    const erroresPrevios = {}
+    if (!estudianteEditando.user.nombres.trim()) erroresPrevios.nombres = ['Los nombres son obligatorios (solo letras).']
+    if (!estudianteEditando.user.apellidos.trim()) erroresPrevios.apellidos = ['Los apellidos son obligatorios (solo letras).']
+    if (estudianteEditando.user.numero_documento.length < 5) erroresPrevios.numero_documento = ['El documento debe tener entre 5 y 10 dígitos numéricos.']
+    if (!estudianteEditando.codigo_estudiantil.trim()) erroresPrevios.codigo_estudiantil = ['El código estudiantil es obligatorio (máx. 10 caracteres).']
+
+    if (Object.keys(erroresPrevios).length > 0) {
+      setErroresForm(erroresPrevios)
+      setGuardando(false)
+      return
+    }
+
     try {
       await api.put(`/estudiantes/${estudianteEditando.id}`, {
         nombres: estudianteEditando.user.nombres,
@@ -140,7 +274,7 @@ export default function DashboardAdmin() {
       if (err.response?.data?.errors) {
         setErroresForm(err.response.data.errors)
       } else {
-        mostrarNotificacion('Error al actualizar estudiante.', 'error')
+        mostrarNotificacion(normalizarError(err.response?.data?.message) || 'Error al actualizar estudiante.', 'error')
       }
     } finally {
       setGuardando(false)
@@ -245,8 +379,8 @@ export default function DashboardAdmin() {
 
       {/* Contenedor Principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1 space-y-7">
-        {/* Tarjetas de Estadísticas */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        {/* Tarjetas de Estadísticas y Firma Institucional */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <div className="bg-white border border-[#dfe6e1] p-5 rounded-2xl flex items-center justify-between shadow-sm">
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-[#5f6b64]">Total Estudiantes</p>
@@ -261,7 +395,7 @@ export default function DashboardAdmin() {
 
           <div className="bg-white border border-[#dfe6e1] p-5 rounded-2xl flex items-center justify-between shadow-sm">
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-[#08940c]">Pases Activos</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[#08940c]">Pases Habilitados</p>
               <h3 className="text-2xl font-extrabold text-[#08940c] mt-1">{pasesActivos}</h3>
             </div>
             <div className="w-12 h-12 rounded-xl bg-[#e8f8ea] text-[#08940c] flex items-center justify-center">
@@ -273,7 +407,7 @@ export default function DashboardAdmin() {
 
           <div className="bg-white border border-[#dfe6e1] p-5 rounded-2xl flex items-center justify-between shadow-sm">
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-[#d93025]">Pases Bloqueados</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[#d93025]">Pases Inhabilitados</p>
               <h3 className="text-2xl font-extrabold text-[#d93025] mt-1">{pasesBloqueados}</h3>
             </div>
             <div className="w-12 h-12 rounded-xl bg-[#fdecea] text-[#d93025] flex items-center justify-center">
@@ -281,6 +415,60 @@ export default function DashboardAdmin() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
               </svg>
             </div>
+          </div>
+
+          {/* Tarjeta 4: Firma Digital del Admin / Tutor FET (Ampliada y Simétrica) */}
+          <div className="bg-white border border-[#dfe6e1] p-5 rounded-2xl flex flex-col justify-between shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-extrabold uppercase tracking-wider text-[#067a0a]">Firma Institucional FET</p>
+              {(firmaAdmin || user?.firma_digital) && (
+                <span className="text-[10px] font-bold text-[#067a0a] bg-[#e8f8ea] px-2 py-0.5 rounded-full border border-[#08940c]/20">
+                  ✓ Guardada
+                </span>
+              )}
+            </div>
+
+            {firmaAdmin || user?.firma_digital ? (
+              <div className="w-full flex flex-col items-center">
+                <div className="w-full h-24 bg-[#f8faf9] rounded-xl border border-dashed border-[#08940c]/40 p-2 flex flex-col items-center justify-center relative shadow-inner">
+                  <img
+                    key={firmaAdmin || user?.firma_digital}
+                    src={urlArchivo(firmaAdmin || user?.firma_digital)}
+                    alt="Firma Institucional Admin"
+                    className="max-h-16 max-w-full object-contain"
+                  />
+                  <div className="w-3/4 border-t border-slate-300 mt-1"></div>
+                  <span className="text-[8px] text-[#5f6b64] uppercase font-semibold">
+                    Línea para formatos FET
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 w-full mt-3">
+                  <button
+                    type="button"
+                    onClick={handleRotarFirma}
+                    disabled={rotandoFirma}
+                    className="flex-1 py-1.5 px-2 text-xs font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-xl border border-[#08940c]/30 shadow-sm cursor-pointer flex items-center justify-center gap-1 transition-all disabled:opacity-50"
+                    title="Girar firma 90 grados"
+                  >
+                    <span>🔄</span>
+                    <span>{rotandoFirma ? 'Girando...' : 'Rotar 90°'}</span>
+                  </button>
+                  <label className="flex-1 py-1.5 px-2 text-center rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold border border-[#dfe6e1] shadow-sm transition-all cursor-pointer">
+                    <span>{subiendoFirma ? 'Subiendo...' : 'Cambiar'}</span>
+                    <input type="file" accept="image/*" onChange={handleSubirFirma} className="hidden" />
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full flex flex-col items-center space-y-2 py-2">
+                <p className="text-xs font-bold text-[#d93025]">Sin firma registrada</p>
+                <label className="w-full py-2 px-3 rounded-xl bg-[#08940c] hover:bg-[#067a0a] text-white text-xs font-bold shadow-md shadow-[#08940c]/25 transition-all cursor-pointer text-center">
+                  <span>{subiendoFirma ? 'Subiendo...' : 'Subir firma FET'}</span>
+                  <input type="file" accept="image/*" onChange={handleSubirFirma} className="hidden" />
+                </label>
+              </div>
+            )}
           </div>
         </section>
 
@@ -302,11 +490,15 @@ export default function DashboardAdmin() {
               <div className="relative flex-1">
                 <input
                   type="text"
-                  placeholder="Número de documento..."
+                  placeholder="Número de documento (solo números, máx. 10)..."
+                  maxLength={10}
                   value={docBusqueda}
-                  onChange={(e) => setDocBusqueda(e.target.value)}
+                  onFocus={() => setFocoCampo('docBusqueda')}
+                  onBlur={() => setFocoCampo('')}
+                  onChange={(e) => setDocBusqueda(filtrarSoloNumeros(e.target.value, 10))}
                   className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl px-4 py-3 text-sm text-[#14201a] placeholder-[#5f6b64] focus:outline-none transition-all font-mono"
                 />
+                <ReglaInput mensaje={obtenerReglaCampo('documento', docBusqueda, null, focoCampo === 'docBusqueda')} />
               </div>
               <button
                 type="submit"
@@ -496,12 +688,32 @@ export default function DashboardAdmin() {
 
                             {/* Botón Ver Hoja de Vida (Solo Lectura) */}
                             <button
-                              onClick={() => setEstudianteHvModal(est)}
-                              className="px-2.5 py-1 text-xs font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-xl transition-colors border border-[#08940c]/30 cursor-pointer flex items-center gap-1"
-                              title="Ver Hoja de Vida (Solo Lectura)"
+                              onClick={() => {
+                                if (!est.hoja_vida_pdf) {
+                                  mostrarNotificacion(`El estudiante ${est.user?.nombres} ${est.user?.apellidos} aún no ha subido su hoja de vida institucional.`, 'error')
+                                  return
+                                }
+                                setEstudianteHvModal(est)
+                              }}
+                              className={`px-2.5 py-1 text-xs font-bold rounded-xl transition-colors border cursor-pointer flex items-center gap-1 ${
+                                est.hoja_vida_pdf
+                                  ? 'text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] border-[#08940c]/30'
+                                  : 'text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-300'
+                              }`}
+                              title={est.hoja_vida_pdf ? 'Ver Hoja de Vida (Solo Lectura)' : 'El estudiante no ha subido su hoja de vida'}
                             >
-                              <span>📄</span>
-                              <span>Hoja de Vida</span>
+                              <span>{est.hoja_vida_pdf ? '📄' : '⚠️'}</span>
+                              <span>{est.hoja_vida_pdf ? 'Hoja de Vida' : 'Sin H.V.'}</span>
+                            </button>
+
+                            {/* Botón Seguimiento de Horas y Firmas */}
+                            <button
+                              onClick={() => handleAbrirSeguimiento(est)}
+                              className="px-2.5 py-1 text-xs font-bold text-[#067a0a] bg-[#e8f8ea] hover:bg-[#d5f3d8] rounded-xl transition-colors border border-[#08940c]/30 cursor-pointer flex items-center gap-1"
+                              title="Seguimiento de Firmas y Horas de Pasantía"
+                            >
+                              <span>📑</span>
+                              <span>Seguimiento</span>
                             </button>
 
                             {/* Botón Editar */}
@@ -560,55 +772,67 @@ export default function DashboardAdmin() {
             <form onSubmit={handleCrearEstudiante} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Nombres</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Nombres (solo letras)</label>
                   <input
                     type="text"
                     required
+                    maxLength={50}
                     value={nuevoEstudiante.nombres}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, nombres: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_nombres')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, nombres: filtrarSoloLetras(e.target.value, 50) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                     placeholder="Ej. Carlos Andres"
                   />
-                  {erroresForm.nombres && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.nombres[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('nombre', nuevoEstudiante.nombres, erroresForm.nombres, focoCampo === 'reg_nombres')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Apellidos</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Apellidos (solo letras)</label>
                   <input
                     type="text"
                     required
+                    maxLength={50}
                     value={nuevoEstudiante.apellidos}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, apellidos: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_apellidos')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, apellidos: filtrarSoloLetras(e.target.value, 50) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                     placeholder="Ej. Pérez Gómez"
                   />
-                  {erroresForm.apellidos && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.apellidos[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('apellido', nuevoEstudiante.apellidos, erroresForm.apellidos, focoCampo === 'reg_apellidos')} />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número Documento</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número Documento (solo números, máx 10)</label>
                   <input
                     type="text"
                     required
+                    maxLength={10}
                     value={nuevoEstudiante.numero_documento}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, numero_documento: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_doc')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, numero_documento: filtrarSoloNumeros(e.target.value, 10) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 font-mono"
                     placeholder="Ej. 1076904428"
                   />
-                  {erroresForm.numero_documento && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.numero_documento[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('documento', nuevoEstudiante.numero_documento, erroresForm.numero_documento, focoCampo === 'reg_doc')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Código Estudiantil</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Código Estudiantil (máx 10)</label>
                   <input
                     type="text"
                     required
+                    maxLength={10}
                     value={nuevoEstudiante.codigo_estudiantil}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, codigo_estudiantil: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_codigo')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, codigo_estudiantil: filtrarCodigoEstudiantil(e.target.value, 10) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 font-mono"
-                    placeholder="Ej. EST2026-001"
+                    placeholder="Ej. 20261001"
                   />
-                  {erroresForm.codigo_estudiantil && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.codigo_estudiantil[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('codigo', nuevoEstudiante.codigo_estudiantil, erroresForm.codigo_estudiantil, focoCampo === 'reg_codigo')} />
                 </div>
               </div>
 
@@ -618,24 +842,30 @@ export default function DashboardAdmin() {
                   <input
                     type="email"
                     required
+                    maxLength={100}
                     value={nuevoEstudiante.email}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, email: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_email')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, email: e.target.value.trim() })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                     placeholder="estudiante@passfet.edu.co"
                   />
-                  {erroresForm.email && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.email[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('email', nuevoEstudiante.email, erroresForm.email, focoCampo === 'reg_email')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Contraseña Inicial</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Contraseña Inicial (8 - 20 caracteres)</label>
                   <input
                     type="password"
                     required
+                    maxLength={20}
                     value={nuevoEstudiante.password}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, password: e.target.value })}
+                    onFocus={() => setFocoCampo('reg_pass')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, password: filtrarPassword(e.target.value, 20) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
-                    placeholder="Mínimo 6 caracteres"
+                    placeholder="Mínimo 8, máximo 20 caracteres"
                   />
-                  {erroresForm.password && <p className="text-xs text-red-600 mt-1 font-semibold">{erroresForm.password[0]}</p>}
+                  <ReglaInput mensaje={obtenerReglaCampo('password', nuevoEstudiante.password, erroresForm.password, focoCampo === 'reg_pass')} />
                 </div>
               </div>
 
@@ -655,15 +885,18 @@ export default function DashboardAdmin() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Semestre</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Semestre (1 - 10)</label>
                   <input
                     type="number"
                     min="1"
                     max="10"
                     value={nuevoEstudiante.semestre}
-                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, semestre: parseInt(e.target.value) || 1 })}
+                    onFocus={() => setFocoCampo('reg_semestre')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) => setNuevoEstudiante({ ...nuevoEstudiante, semestre: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('semestre', nuevoEstudiante.semestre, erroresForm.semestre, focoCampo === 'reg_semestre')} />
                 </div>
               </div>
 
@@ -708,82 +941,102 @@ export default function DashboardAdmin() {
             <form onSubmit={handleActualizarEstudiante} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Nombres</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Nombres (solo letras)</label>
                   <input
                     type="text"
                     required
+                    maxLength={50}
                     value={estudianteEditando.user.nombres}
+                    onFocus={() => setFocoCampo('edit_nombres')}
+                    onBlur={() => setFocoCampo('')}
                     onChange={(e) =>
                       setEstudianteEditando({
                         ...estudianteEditando,
-                        user: { ...estudianteEditando.user, nombres: e.target.value },
+                        user: { ...estudianteEditando.user, nombres: filtrarSoloLetras(e.target.value, 50) },
                       })
                     }
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('nombre', estudianteEditando.user.nombres, erroresForm.nombres, focoCampo === 'edit_nombres')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Apellidos</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Apellidos (solo letras)</label>
                   <input
                     type="text"
                     required
+                    maxLength={50}
                     value={estudianteEditando.user.apellidos}
+                    onFocus={() => setFocoCampo('edit_apellidos')}
+                    onBlur={() => setFocoCampo('')}
                     onChange={(e) =>
                       setEstudianteEditando({
                         ...estudianteEditando,
-                        user: { ...estudianteEditando.user, apellidos: e.target.value },
+                        user: { ...estudianteEditando.user, apellidos: filtrarSoloLetras(e.target.value, 50) },
                       })
                     }
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('apellido', estudianteEditando.user.apellidos, erroresForm.apellidos, focoCampo === 'edit_apellidos')} />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número Documento</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número Documento (solo números, máx 10)</label>
                   <input
                     type="text"
                     required
+                    maxLength={10}
                     value={estudianteEditando.user.numero_documento}
+                    onFocus={() => setFocoCampo('edit_doc')}
+                    onBlur={() => setFocoCampo('')}
                     onChange={(e) =>
                       setEstudianteEditando({
                         ...estudianteEditando,
-                        user: { ...estudianteEditando.user, numero_documento: e.target.value },
+                        user: { ...estudianteEditando.user, numero_documento: filtrarSoloNumeros(e.target.value, 10) },
                       })
                     }
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 font-mono"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('documento', estudianteEditando.user.numero_documento, erroresForm.numero_documento, focoCampo === 'edit_doc')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Código Estudiantil</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Código Estudiantil (máx 10)</label>
                   <input
                     type="text"
                     required
+                    maxLength={10}
                     value={estudianteEditando.codigo_estudiantil}
+                    onFocus={() => setFocoCampo('edit_codigo')}
+                    onBlur={() => setFocoCampo('')}
                     onChange={(e) =>
-                      setEstudianteEditando({ ...estudianteEditando, codigo_estudiantil: e.target.value })
+                      setEstudianteEditando({ ...estudianteEditando, codigo_estudiantil: filtrarCodigoEstudiantil(e.target.value, 10) })
                     }
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 font-mono"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('codigo', estudianteEditando.codigo_estudiantil, erroresForm.codigo_estudiantil, focoCampo === 'edit_codigo')} />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Correo Electrónico</label>
                   <input
                     type="email"
                     required
+                    maxLength={100}
                     value={estudianteEditando.user.email}
+                    onFocus={() => setFocoCampo('edit_email')}
+                    onBlur={() => setFocoCampo('')}
                     onChange={(e) =>
                       setEstudianteEditando({
                         ...estudianteEditando,
-                        user: { ...estudianteEditando.user, email: e.target.value },
+                        user: { ...estudianteEditando.user, email: e.target.value.trim() },
                       })
                     }
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
                   />
+                  <ReglaInput mensaje={obtenerReglaCampo('email', estudianteEditando.user.email, erroresForm.email, focoCampo === 'edit_email')} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Programa Académico</label>
@@ -800,6 +1053,22 @@ export default function DashboardAdmin() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Semestre (1 - 10)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={estudianteEditando.semestre || 1}
+                    onFocus={() => setFocoCampo('edit_semestre')}
+                    onBlur={() => setFocoCampo('')}
+                    onChange={(e) =>
+                      setEstudianteEditando({ ...estudianteEditando, semestre: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })
+                    }
+                    className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3.5 py-2.5 text-sm text-[#14201a] focus:outline-none focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10"
+                  />
+                  <ReglaInput mensaje={obtenerReglaCampo('semestre', estudianteEditando.semestre, erroresForm.semestre, focoCampo === 'edit_semestre')} />
                 </div>
               </div>
 
@@ -829,6 +1098,299 @@ export default function DashboardAdmin() {
           estudiante={estudianteHvModal}
           onCerrar={() => setEstudianteHvModal(null)}
         />
+      )}
+
+      {/* MODAL: Seguimiento de Horas y Firmas del Estudiante (Admin) */}
+      {estudianteSeguimiento && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-[#dfe6e1] rounded-3xl p-6 sm:p-7 max-w-4xl w-full shadow-2xl space-y-5 my-8">
+            <div className="flex items-center justify-between border-b border-[#dfe6e1] pb-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#14201a]">
+                  Seguimiento de Horas y Firmas de Pasantía
+                </h3>
+                <p className="text-xs text-[#5f6b64]">
+                  Estudiante: <span className="font-bold text-[#14201a] capitalize">{estudianteSeguimiento.user?.nombres} {estudianteSeguimiento.user?.apellidos}</span> · Doc: {estudianteSeguimiento.user?.numero_documento} · Cód: {estudianteSeguimiento.codigo_estudiantil}
+                </p>
+              </div>
+              <button
+                onClick={() => setEstudianteSeguimiento(null)}
+                className="text-[#5f6b64] hover:text-slate-900 p-1 font-bold cursor-pointer text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {cargandoSeguimiento ? (
+              <div className="py-12 text-center text-[#5f6b64]">
+                <span className="animate-spin text-2xl inline-block mb-2 text-[#08940c]">⟳</span>
+                <p>Cargando convenios y formatos de asistencia...</p>
+              </div>
+            ) : pasantiasSeguimiento.length === 0 ? (
+              <div className="p-8 text-center bg-[#f8faf9] rounded-2xl border border-[#dfe6e1] text-[#5f6b64]">
+                <p className="text-sm font-bold text-[#14201a]">Sin pasantías vinculadas</p>
+                <p className="text-xs mt-1">Este estudiante aún no ha sido vinculado a una empresa para pasantías.</p>
+              </div>
+            ) : (
+              <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
+                {pasantiasSeguimiento.map((pas) => {
+                  const formatos = pas.formatos_asistencia || []
+                  const totalHoras = formatos.filter(f => f.check_habilitado).reduce((acc, f) => acc + (f.horas_cumplidas || 0), 0)
+
+                  return (
+                    <div key={pas.id} className="border border-[#dfe6e1] rounded-2xl p-4 bg-[#f8faf9] space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#dfe6e1] pb-3 bg-white p-3.5 rounded-xl">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-[#067a0a] bg-[#e8f8ea] px-2 py-0.5 rounded-md">
+                            Convenio de Pasantía Activo
+                          </span>
+                          <h4 className="text-base font-extrabold text-[#14201a] mt-1">
+                            {pas.empresario?.empresa || pas.empresario?.razon_social || 'Empresa en Convenio'}
+                          </h4>
+                          <p className="text-xs text-[#5f6b64]">
+                            Tutor Empresarial: {pas.empresario?.user?.nombres} {pas.empresario?.user?.apellidos} · Cargo: {pas.cargo_pasantia || 'Pasante'} · Periodo: {pas.fecha_inicio} a {pas.fecha_fin || 'Actual'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => descargarPdf(`/pasantias/${pas.id}/asistencia-pdf`, `formato_asistencia_${estudianteSeguimiento.user?.numero_documento}.pdf`)}
+                            className="px-3 py-2 rounded-xl bg-[#08940c] hover:bg-[#067a0a] text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-[#08940c]/20"
+                          >
+                            <span>📑</span>
+                            <span>Descargar Formato Oficial (PDF)</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-xs font-bold text-[#14201a]">
+                          Registros de Asistencia ({formatos.length}):
+                        </span>
+                        <span className="text-xs font-bold text-[#067a0a] bg-[#e8f8ea] px-2.5 py-1 rounded-lg border border-[#08940c]/20">
+                          Horas Aprobadas: {totalHoras} hrs
+                        </span>
+                      </div>
+
+                      {formatos.length === 0 ? (
+                        <p className="text-xs text-[#5f6b64] text-center py-4 bg-white rounded-xl border border-[#dfe6e1]">
+                          El estudiante no ha reportado sesiones de asistencia en esta pasantía todavía.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-[#dfe6e1] bg-white">
+                          <table className="w-full text-left text-xs text-[#14201a]">
+                            <thead className="bg-[#f8faf9] text-[#5f6b64] uppercase text-[10px] tracking-wider border-b border-[#dfe6e1]">
+                              <tr>
+                                <th className="py-2.5 px-3 font-bold">Semana / Fecha</th>
+                                <th className="py-2.5 px-3 font-bold">Horas</th>
+                                <th className="py-2.5 px-3 font-bold">Actividades</th>
+                                <th className="py-2.5 px-3 font-bold text-center">Firma Empresa</th>
+                                <th className="py-2.5 px-3 font-bold text-center">Firma FET (Docente)</th>
+                                <th className="py-2.5 px-3 font-bold text-right">Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#dfe6e1]">
+                              {formatos.map((asist) => (
+                                <tr key={asist.id} className="hover:bg-[#f8faf9] transition-colors">
+                                  <td className="py-2.5 px-3 whitespace-nowrap">
+                                    <span className="font-bold block">{asist.semana || 'Sesión'}</span>
+                                    <span className="text-[10px] text-[#5f6b64]">{asist.fecha_registro}</span>
+                                  </td>
+                                  <td className="py-2.5 px-3 font-mono font-bold text-[#067a0a]">{asist.horas_cumplidas} hrs</td>
+                                  <td className="py-2.5 px-3 max-w-xs">
+                                    <p className="line-clamp-2 text-[#5f6b64]">{asist.actividades_realizadas}</p>
+                                    {asist.evidencia_url && (
+                                      <a
+                                        href={urlArchivo(asist.evidencia_url)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[10px] text-[#08940c] font-bold hover:underline mt-0.5"
+                                      >
+                                        <span>📎</span> Ver soporte
+                                      </a>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                    {asist.firma_empresario_url ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f8ea] text-[#067a0a] border border-[#08940c]/20">
+                                        ✓ Firmado
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                                        ⏳ Pendiente
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                    {asist.firma_docente_url || asist.check_docente ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f8ea] text-[#067a0a] border border-[#08940c]/20">
+                                        ✓ Firmado FET
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                                        ⏳ Sin firma FET
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                    <button
+                                      onClick={() => {
+                                        setAsistenciaSeleccionada(asist)
+                                        setCheckHabilitado(asist.check_docente || asist.check_habilitado || false)
+                                        setObservaciones(asist.observaciones || '')
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#08940c] hover:bg-[#067a0a] text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm"
+                                    >
+                                      Revisar y Firmar
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Revisar y Firmar Asistencia por Administrador / Docente FET */}
+      {asistenciaSeleccionada && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-[#dfe6e1] rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-[#dfe6e1] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#14201a]">Revisión Institucional de Asistencia (FET)</h3>
+                <p className="text-xs text-[#5f6b64]">Estudiante: {estudianteSeguimiento?.user?.nombres} {estudianteSeguimiento?.user?.apellidos}</p>
+              </div>
+              <button
+                onClick={() => setAsistenciaSeleccionada(null)}
+                className="text-[#5f6b64] hover:text-slate-900 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3.5 bg-[#f8faf9] p-4 rounded-2xl border border-[#dfe6e1] text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <p><span className="font-bold text-[#14201a]">Semana/Fecha:</span> {asistenciaSeleccionada.semana || 'Sesión'} · {asistenciaSeleccionada.fecha_registro}</p>
+                <p><span className="font-bold text-[#14201a]">Horas reportadas:</span> {asistenciaSeleccionada.horas_cumplidas} hrs</p>
+              </div>
+              <div>
+                <span className="font-bold text-[#14201a] block mb-1">Actividades Desarrolladas:</span>
+                <p className="p-2.5 bg-white border border-[#dfe6e1] rounded-xl text-slate-700 whitespace-pre-line leading-relaxed">
+                  {asistenciaSeleccionada.actividades_realizadas}
+                </p>
+              </div>
+              {asistenciaSeleccionada.evidencia_url && (
+                <div className="pt-2 border-t border-[#dfe6e1]">
+                  <span className="font-bold text-[#14201a] block mb-1">Evidencia / Soporte:</span>
+                  <a
+                    href={urlArchivo(asistenciaSeleccionada.evidencia_url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#dfe6e1] text-xs font-bold text-[#08940c] hover:underline"
+                  >
+                    <span>📎</span> Ver archivo de soporte ↗
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Check de Habilitación y Aprobación Institucional FET */}
+            <div className="p-4 bg-[#e8f8ea] border border-[#08940c]/30 rounded-2xl space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checkHabilitado}
+                  onChange={(e) => setCheckHabilitado(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 accent-[#08940c] rounded cursor-pointer"
+                />
+                <div>
+                  <span className="text-sm font-extrabold text-[#067a0a] block">
+                    Check de Habilitación y Validación Institucional FET
+                  </span>
+                  <p className="text-xs text-[#067a0a]/80 mt-0.5">
+                    Certifico como docente/administrador institucional que el pasante cumplió a cabalidad con las actividades reportadas en el periodo.
+                  </p>
+                </div>
+              </label>
+
+              {/* Previsualización de Firma que se estampará */}
+              <div className="pt-2 border-t border-[#08940c]/20 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-[#067a0a] block">Firma FET a estampar:</span>
+                  <span className="text-[10px] text-[#5f6b64]">Aparecerá en el formato de asistencia</span>
+                </div>
+                {firmaAdmin || user?.firma_digital ? (
+                  <div className="flex items-center gap-2">
+                    <img
+                      key={firmaAdmin || user?.firma_digital}
+                      src={urlArchivo(firmaAdmin || user?.firma_digital)}
+                      alt="Firma Institucional"
+                      className="h-12 max-w-[160px] object-contain bg-white rounded-lg p-1.5 border border-[#08940c]/30 shadow-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRotarFirma}
+                      disabled={rotandoFirma}
+                      className="px-2.5 py-1 text-[11px] font-bold text-[#067a0a] bg-white hover:bg-[#e8f8ea] rounded-lg border border-[#08940c]/30 cursor-pointer shadow-sm transition-all"
+                      title="Girar firma 90° si está invertida o vertical"
+                    >
+                      {rotandoFirma ? 'Girando...' : '🔄 Rotar'}
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-[#d93025] font-bold">Debes subir tu foto de firma primero</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Observaciones o retroalimentación (Opcional)</label>
+              <textarea
+                rows="2"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                placeholder="Comentarios institucionales sobre el cumplimiento de las horas..."
+                className="w-full bg-[#f8faf9] border border-[#dfe6e1] focus:border-[#08940c] focus:ring-4 focus:ring-[#08940c]/10 rounded-xl p-3 text-xs text-[#14201a]"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#dfe6e1]">
+              <button
+                type="button"
+                onClick={() => setAsistenciaSeleccionada(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#5f6b64] hover:text-slate-900 bg-slate-100 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={procesandoAsistencia}
+                  onClick={() => handleGuardarAprobacionAdmin('rechazado')}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 cursor-pointer transition-all"
+                >
+                  Rechazar
+                </button>
+                <button
+                  type="button"
+                  disabled={procesandoAsistencia || (!firmaAdmin && !user?.firma_digital)}
+                  onClick={() => handleGuardarAprobacionAdmin('aprobado')}
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#08940c] hover:bg-[#067a0a] shadow-md shadow-[#08940c]/25 cursor-pointer disabled:opacity-50 transition-all flex items-center gap-1.5"
+                >
+                  <span>✓</span>
+                  <span>{procesandoAsistencia ? 'Firmando...' : 'Aprobar y Firmar'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
