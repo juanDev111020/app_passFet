@@ -14,12 +14,13 @@ class AuthController extends Controller
     {
         $request->validate([
             'email'    => 'required|email',
-            'password' => 'required|min:6',
+            'password' => 'required|string|min:8|max:20',
         ], [
             'email.required'    => 'El correo es obligatorio.',
             'email.email'       => 'El correo no es válido.',
             'password.required' => 'La contraseña es obligatoria.',
-            'password.min'      => 'La contraseña debe tener mínimo 6 caracteres.',
+            'password.min'      => 'La contraseña debe tener mínimo 8 caracteres.',
+            'password.max'      => 'La contraseña no puede superar 20 caracteres.',
         ]);
 
         $user = User::where('email', $request->email)->first();
@@ -36,6 +37,12 @@ class AuthController extends Controller
 
         $token = $user->createToken('passfet')->plainTextToken;
 
+        if ($user->rol === 'estudiante') {
+            $user->load(['estudiante.programa', 'estudiante.pase', 'estudiante.experiencias.evidencias']);
+        } elseif ($user->rol === 'empresario') {
+            $user->load(['empresario.pasantias.estudiante.user']);
+        }
+
         return response()->json([
             'message' => 'Inicio de sesión exitoso.',
             'token'   => $token,
@@ -46,7 +53,14 @@ class AuthController extends Controller
     // GET /api/auth/me
     public function me(Request $request)
     {
-        return response()->json(['user' => $request->user()]);
+        $user = $request->user();
+        if ($user->rol === 'estudiante') {
+            $user->load(['estudiante.programa', 'estudiante.pase', 'estudiante.experiencias.evidencias']);
+        } elseif ($user->rol === 'empresario') {
+            $user->load(['empresario.pasantias.estudiante.user']);
+        }
+
+        return response()->json(['user' => $user]);
     }
 
     // POST /api/auth/logout
