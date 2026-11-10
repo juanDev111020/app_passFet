@@ -118,7 +118,7 @@ export const obtenerReglaCampo = (tipo, valor, errorServidor = null, tocado = fa
 
     case 'horas':
       const hrs = parseInt(valStr, 10)
-      if (isNaN(hrs) || hrs < 1 || hrs > 24) return 'Horas por reporte: entre 1 y 24 horas.'
+      if (isNaN(hrs) || hrs < 1 || hrs > 42) return 'Horas por reporte: entre 1 y 42 horas.'
       return null
 
     case 'cargo':

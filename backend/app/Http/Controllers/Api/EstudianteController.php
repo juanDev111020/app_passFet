@@ -166,9 +166,16 @@ class EstudianteController extends Controller
 
         // Regla de Negocio (RF08): Bloqueo obligatorio de 1 día cronológico (24 horas)
         if ($pase->ultimo_cambio_estado) {
-            $horasTranscurridas = now()->diffInHours($pase->ultimo_cambio_estado);
-            if ($horasTranscurridas < 24) {
-                $horasRestantes = 24 - $horasTranscurridas;
+            $ultimoCambio = $pase->ultimo_cambio_estado instanceof \Carbon\Carbon
+                ? $pase->ultimo_cambio_estado
+                : \Carbon\Carbon::parse($pase->ultimo_cambio_estado);
+
+            $tiempoDesbloqueo = $ultimoCambio->copy()->addHours(24);
+
+            if (now()->lessThan($tiempoDesbloqueo)) {
+                $horasTranscurridas = $ultimoCambio->diffInHours(now());
+                $horasRestantes = max(1, (int) ceil(24 - $horasTranscurridas));
+
                 return response()->json([
                     'message' => "El estado del pase tiene una vigencia obligatoria de 1 día cronológico. Faltan {$horasRestantes} hora(s) para poder modificarlo nuevamente.",
                     'horas_restantes' => $horasRestantes,
