@@ -534,8 +534,8 @@ export default function PerfilEstudiante() {
     setErroresAsistencia({})
 
     const horas = parseInt(formAsistencia.horas_cumplidas, 10)
-    if (isNaN(horas) || horas < 1 || horas > 24) {
-      setErroresAsistencia({ horas_cumplidas: ['Las horas cumplidas deben estar entre 1 y 24 horas por reporte.'] })
+    if (isNaN(horas) || horas < 1 || horas > 42) {
+      setErroresAsistencia({ horas_cumplidas: ['Las horas cumplidas deben estar entre 1 y 42 horas por reporte semanal.'] })
       return
     }
 
@@ -2174,16 +2174,16 @@ export default function PerfilEstudiante() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Horas Cumplidas (1 a 24)</label>
+                  <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Horas Cumplidas (1 a 42)</label>
                   <input
                     type="number"
                     min="1"
-                    max="24"
+                    max="42"
                     required
                     value={formAsistencia.horas_cumplidas}
                     onFocus={() => setFocoCampo('asist_horas')}
                     onBlur={() => setFocoCampo('')}
-                    onChange={(e) => setFormAsistencia({ ...formAsistencia, horas_cumplidas: Math.max(1, Math.min(24, parseInt(e.target.value) || 1)) })}
+                    onChange={(e) => setFormAsistencia({ ...formAsistencia, horas_cumplidas: e.target.value })}
                     className="w-full bg-[#f8faf9] border border-[#dfe6e1] rounded-xl px-3 py-2 text-sm text-[#14201a]"
                   />
                   <ReglaInput mensaje={obtenerReglaCampo('horas', formAsistencia.horas_cumplidas, erroresAsistencia.horas_cumplidas, focoCampo === 'asist_horas')} />

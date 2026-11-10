@@ -102,7 +102,7 @@ export default function DashboardAdmin() {
       setEstudiantes((prev) =>
         prev.map((e) =>
           e.id === estudiante.id
-            ? { ...e, pase: { ...e.pase, estado: res.data.estado } }
+            ? { ...e, pase: { ...e.pase, estado: res.data.estado, ultimo_cambio_estado: res.data.ultimo_cambio_estado } }
             : e
         )
       )
@@ -320,8 +320,8 @@ export default function DashboardAdmin() {
 
   // Estadísticas
   const totalEstudiantes = estudiantes.length
-  const pasesActivos = estudiantes.filter((e) => (e.pase?.estado || 'activo').toLowerCase() === 'activo').length
-  const pasesBloqueados = estudiantes.filter((e) => (e.pase?.estado || '').toLowerCase() === 'bloqueado').length
+  const pasesActivos = estudiantes.filter((e) => esPaseHabilitado(e.pase?.estado || (e.user?.activo ? 'habilitado' : 'inhabilitado'))).length
+  const pasesBloqueados = totalEstudiantes - pasesActivos
 
   return (
     <div className="min-h-screen bg-[#f4f7f5] text-slate-800 flex flex-col font-sans selection:bg-[#08940c] selection:text-white">
