@@ -83,54 +83,67 @@ class PerfilController extends Controller
             mkdir(dirname($destinoCompleto), 0755, true);
         }
 
-        $img = null;
-        switch ($extension) {
-            case 'jpg':
-            case 'jpeg':
-                $img = @imagecreatefromjpeg($tempPath);
-                if ($img && function_exists('exif_read_data')) {
-                    $exif = @exif_read_data($tempPath);
-                    if (!empty($exif['Orientation'])) {
-                        switch ($exif['Orientation']) {
-                            case 3:
-                                $img = imagerotate($img, 180, 0);
-                                break;
-                            case 6:
-                                $img = imagerotate($img, -90, 0);
-                                break;
-                            case 8:
-                                $img = imagerotate($img, 90, 0);
-                                break;
-                        }
-                    }
-                }
-                break;
-            case 'png':
-                $img = @imagecreatefrompng($tempPath);
-                break;
-            case 'webp':
-                $img = @imagecreatefromwebp($tempPath);
-                break;
-            default:
-                $img = @imagecreatefromstring(file_get_contents($tempPath));
-                break;
-        }
-
-        if (!$img) {
-            $path = $archivo->storeAs($carpeta, $nombre, 'public');
+        // Si la extensión GD no está disponible en el servidor PHP, guardar directamente el archivo original sin error 500
+        if (!extension_loaded('gd') || !function_exists('imagecreatefromstring')) {
+            $nombreOriginal = $prefijo . '_' . uniqid() . '_' . time() . '.' . ($extension ?: 'png');
+            $path = $archivo->storeAs($carpeta, $nombreOriginal, 'public');
             return '/storage/' . $path;
         }
 
-        if ($gradosAdicionales % 360 !== 0) {
-            $img = imagerotate($img, -$gradosAdicionales, imagecolorallocatealpha($img, 0, 0, 0, 127));
+        try {
+            $img = null;
+            switch ($extension) {
+                case 'jpg':
+                case 'jpeg':
+                    $img = function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($tempPath) : null;
+                    if ($img && function_exists('exif_read_data')) {
+                        $exif = @exif_read_data($tempPath);
+                        if (!empty($exif['Orientation'])) {
+                            switch ($exif['Orientation']) {
+                                case 3:
+                                    $img = imagerotate($img, 180, 0);
+                                    break;
+                                case 6:
+                                    $img = imagerotate($img, -90, 0);
+                                    break;
+                                case 8:
+                                    $img = imagerotate($img, 90, 0);
+                                    break;
+                            }
+                        }
+                    }
+                    break;
+                case 'png':
+                    $img = function_exists('imagecreatefrompng') ? @imagecreatefrompng($tempPath) : null;
+                    break;
+                case 'webp':
+                    $img = function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tempPath) : null;
+                    break;
+                default:
+                    $img = function_exists('imagecreatefromstring') ? @imagecreatefromstring(file_get_contents($tempPath)) : null;
+                    break;
+            }
+
+            if (!$img) {
+                $path = $archivo->storeAs($carpeta, $nombre, 'public');
+                return '/storage/' . $path;
+            }
+
+            if ($gradosAdicionales % 360 !== 0) {
+                $img = imagerotate($img, -$gradosAdicionales, imagecolorallocatealpha($img, 0, 0, 0, 127));
+            }
+
+            imagealphablending($img, false);
+            imagesavealpha($img, true);
+            imagepng($img, $destinoCompleto, 8);
+            imagedestroy($img);
+
+            return '/storage/' . $destinoRelativo;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('No se pudo procesar imagen con GD: ' . $e->getMessage());
+            $path = $archivo->storeAs($carpeta, $nombre, 'public');
+            return '/storage/' . $path;
         }
-
-        imagealphablending($img, false);
-        imagesavealpha($img, true);
-        imagepng($img, $destinoCompleto, 8);
-        imagedestroy($img);
-
-        return '/storage/' . $destinoRelativo;
     }
 
     // Subir Firma digital como imagen (RF07 / Requerimiento de firmas fotográficas)
@@ -196,62 +209,75 @@ class PerfilController extends Controller
             return response()->json(['message' => 'Archivo de firma no encontrado en el servidor.'], 404);
         }
 
-        $extension = strtolower(pathinfo($rutaFisica, PATHINFO_EXTENSION));
-        $img = null;
-        switch ($extension) {
-            case 'jpg':
-            case 'jpeg':
-                $img = @imagecreatefromjpeg($rutaFisica);
-                break;
-            case 'png':
-                $img = @imagecreatefrompng($rutaFisica);
-                break;
-            case 'webp':
-                $img = @imagecreatefromwebp($rutaFisica);
-                break;
-            default:
-                $img = @imagecreatefromstring(file_get_contents($rutaFisica));
-                break;
+        if (!extension_loaded('gd') || !function_exists('imagerotate')) {
+            return response()->json([
+                'message' => 'La extensión PHP GD no está instalada o habilitada en el servidor. Por favor habilita extension=gd en php.ini para rotar imágenes.',
+            ], 422);
         }
 
-        if (!$img) {
-            return response()->json(['message' => 'No se pudo procesar la imagen de firma.'], 500);
+        try {
+            $extension = strtolower(pathinfo($rutaFisica, PATHINFO_EXTENSION));
+            $img = null;
+            switch ($extension) {
+                case 'jpg':
+                case 'jpeg':
+                    $img = function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($rutaFisica) : null;
+                    break;
+                case 'png':
+                    $img = function_exists('imagecreatefrompng') ? @imagecreatefrompng($rutaFisica) : null;
+                    break;
+                case 'webp':
+                    $img = function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($rutaFisica) : null;
+                    break;
+                default:
+                    $img = function_exists('imagecreatefromstring') ? @imagecreatefromstring(file_get_contents($rutaFisica)) : null;
+                    break;
+            }
+
+            if (!$img) {
+                return response()->json(['message' => 'No se pudo leer la imagen de firma.'], 422);
+            }
+
+            $img = imagerotate($img, -$grados, imagecolorallocatealpha($img, 0, 0, 0, 127));
+            imagealphablending($img, false);
+            imagesavealpha($img, true);
+
+            $nuevoNombre = 'firma_' . $user->id . '_' . time() . '.png';
+            $nuevoDestino = storage_path('app/public/firmas/' . $nuevoNombre);
+            if (!is_dir(dirname($nuevoDestino))) {
+                mkdir(dirname($nuevoDestino), 0755, true);
+            }
+            imagepng($img, $nuevoDestino, 8);
+            imagedestroy($img);
+
+            @unlink($rutaFisica);
+
+            $nuevaUrl = '/storage/firmas/' . $nuevoNombre;
+            $nuevaOrientacion = ($user->firma_orientacion === 'vertical') ? 'horizontal' : 'vertical';
+            if ($request->filled('orientacion')) {
+                $nuevaOrientacion = $request->orientacion;
+            }
+
+            $user->update([
+                'firma_digital'     => $nuevaUrl,
+                'firma_orientacion' => $nuevaOrientacion,
+            ]);
+
+            if ($user->rol === 'empresario' && $user->empresario) {
+                $user->empresario->update(['firma_imagen' => $nuevaUrl]);
+            }
+
+            return response()->json([
+                'message'           => 'Firma rotada correctamente.',
+                'firma_digital'     => $nuevaUrl,
+                'firma_orientacion' => $nuevaOrientacion,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Error rotando firma con GD: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Ocurrió un error al rotar la firma. Verifica que la extensión PHP GD esté habilitada (extension=gd en php.ini).',
+            ], 422);
         }
-
-        $img = imagerotate($img, -$grados, imagecolorallocatealpha($img, 0, 0, 0, 127));
-        imagealphablending($img, false);
-        imagesavealpha($img, true);
-
-        $nuevoNombre = 'firma_' . $user->id . '_' . time() . '.png';
-        $nuevoDestino = storage_path('app/public/firmas/' . $nuevoNombre);
-        if (!is_dir(dirname($nuevoDestino))) {
-            mkdir(dirname($nuevoDestino), 0755, true);
-        }
-        imagepng($img, $nuevoDestino, 8);
-        imagedestroy($img);
-
-        @unlink($rutaFisica);
-
-        $nuevaUrl = '/storage/firmas/' . $nuevoNombre;
-        $nuevaOrientacion = ($user->firma_orientacion === 'vertical') ? 'horizontal' : 'vertical';
-        if ($request->filled('orientacion')) {
-            $nuevaOrientacion = $request->orientacion;
-        }
-
-        $user->update([
-            'firma_digital'     => $nuevaUrl,
-            'firma_orientacion' => $nuevaOrientacion,
-        ]);
-
-        if ($user->rol === 'empresario' && $user->empresario) {
-            $user->empresario->update(['firma_imagen' => $nuevaUrl]);
-        }
-
-        return response()->json([
-            'message'           => 'Firma rotada correctamente.',
-            'firma_digital'     => $nuevaUrl,
-            'firma_orientacion' => $nuevaOrientacion,
-        ]);
     }
 
     // Subir Foto de Perfil / Hoja de Vida (3x4)

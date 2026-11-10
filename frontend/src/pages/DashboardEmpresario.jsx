@@ -10,6 +10,7 @@ import {
   filtrarSoloLetras,
   obtenerReglaCampo,
   normalizarError,
+  formatearFecha,
 } from '../utils/validationHelper'
 
 export default function DashboardEmpresario() {
@@ -140,10 +141,10 @@ export default function DashboardEmpresario() {
       })
       cargarDatos()
     } catch (err) {
-      if (err.response?.data?.errors) {
-        setErroresVincular(err.response.data.errors)
-      }
-      avisar(normalizarError(err.response?.data?.message) || 'No se pudo vincular al estudiante.', 'error')
+      const msg = normalizarError(err.response?.data?.message) || 'No se pudo vincular al estudiante.'
+      const serverErrors = err.response?.data?.errors || {}
+      setErroresVincular({ ...serverErrors, general: msg })
+      avisar(msg, 'error')
     } finally {
       setVinculando(false)
     }
@@ -195,7 +196,7 @@ export default function DashboardEmpresario() {
     <div className="min-h-screen bg-[#f4f7f5] text-slate-800 flex flex-col font-sans selection:bg-[#08940c] selection:text-white">
       {/* Toast Notificación */}
       {notificacion && (
-        <div className="fixed bottom-5 right-5 z-50 animate-bounce">
+        <div className="fixed bottom-5 right-5 z-[9999] animate-bounce">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 border ${
               notificacion.tipo === 'exito'
@@ -331,7 +332,7 @@ export default function DashboardEmpresario() {
               <p className="text-xs text-[#5f6b64]">Estudiantes FET actualmente cursando pasantías en tu empresa.</p>
             </div>
             <button
-              onClick={() => setModalVincular(true)}
+              onClick={() => { setModalVincular(true); setErroresVincular({}); }}
               className="px-4 py-2 rounded-xl bg-[#08940c] hover:bg-[#067a0a] text-white text-xs sm:text-sm font-bold shadow-md shadow-[#08940c]/25 flex items-center gap-1.5 cursor-pointer shrink-0"
             >
               <span>+</span>
@@ -446,7 +447,7 @@ export default function DashboardEmpresario() {
                 <tbody className="divide-y divide-[#dfe6e1]">
                   {formatosTotales.map((fa) => (
                     <tr key={fa.id} className="hover:bg-[#f8faf9] transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-xs whitespace-nowrap">{fa.fecha_registro}</td>
+                      <td className="py-3.5 px-4 font-bold text-xs whitespace-nowrap">{formatearFecha(fa.fecha_registro)}</td>
                       <td className="py-3.5 px-4">
                         <p className="font-bold text-[#14201a]">{fa.estudianteNombre}</p>
                         <p className="text-[11px] text-[#5f6b64]">Doc: {fa.estudianteDoc}</p>
@@ -508,7 +509,7 @@ export default function DashboardEmpresario() {
 
             <div className="space-y-3.5 bg-[#f8faf9] p-4 rounded-2xl border border-[#dfe6e1] text-xs">
               <div className="grid grid-cols-2 gap-2">
-                <p><span className="font-bold text-[#14201a]">Fecha:</span> {asistenciaSeleccionada.fecha_registro}</p>
+                <p><span className="font-bold text-[#14201a]">Fecha:</span> {formatearFecha(asistenciaSeleccionada.fecha_registro)}</p>
                 <p><span className="font-bold text-[#14201a]">Horas reportadas:</span> {asistenciaSeleccionada.horas_cumplidas} hrs</p>
               </div>
               <div>
@@ -628,6 +629,13 @@ export default function DashboardEmpresario() {
             </div>
 
             <form onSubmit={handleVincularEstudiante} className="space-y-4">
+              {erroresVincular.general && (
+                <div className="p-3.5 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-xs font-semibold flex items-center gap-2.5">
+                  <span className="font-bold text-sm">✕</span>
+                  <p>{erroresVincular.general}</p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-[#14201a] uppercase mb-1">Número de Documento del Estudiante (solo números, máx 10)</label>
                 <input

@@ -8,6 +8,15 @@ Proyecto de Ingeniería de Software.
 - Backend: Laravel 12 + Sanctum
 - Base de datos: PostgreSQL
 
+## Requisitos del Servidor (PHP)
+- **PHP >= 8.2**
+- **Extensiones requeridas de PHP** (en `php.ini` descomentar o activar):
+  - `extension=pdo_pgsql` (Conexión a la base de datos PostgreSQL)
+  - `extension=pgsql` (Driver PostgreSQL)
+  - `extension=gd` (Requerida para procesamiento, compresión y rotación de firmas y fotos de hoja de vida)
+  - `extension=fileinfo`
+  - `extension=exif`
+
 ## Estructura
 - `database/` — script SQL de la base de datos
 - `backend/` — API REST en Laravel

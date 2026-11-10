@@ -111,3 +111,4 @@ class FormatoAsistenciaPdfTest extends TestCase
         $this->assertStringContainsString('Gerente de TI / Supervisor', $view);
     }
 }
+

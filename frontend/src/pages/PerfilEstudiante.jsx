@@ -10,6 +10,7 @@ import {
   filtrarSoloLetras,
   obtenerReglaCampo,
   normalizarError,
+  formatearFecha,
 } from '../utils/validationHelper'
 
 const TIPOS_EXP = {
@@ -575,7 +576,7 @@ export default function PerfilEstudiante() {
     <div className="min-h-screen bg-[#f4f7f5] text-slate-800 flex flex-col font-sans selection:bg-[#08940c] selection:text-white">
       {/* Toast Notificación */}
       {notificacion && (
-        <div className="fixed bottom-5 right-5 z-50 animate-bounce">
+        <div className="fixed bottom-5 right-5 z-[9999] animate-bounce">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 border ${
               notificacion.tipo === 'exito'
@@ -2001,7 +2002,7 @@ export default function PerfilEstudiante() {
                           pas.formatos_asistencia?.map((asist) => (
                             <div key={asist.id} className="bg-white border border-[#dfe6e1] p-2 rounded-xl text-xs space-y-1">
                               <div className="flex items-center justify-between">
-                                <span className="font-bold">{asist.fecha_registro} ({asist.horas_cumplidas} hrs)</span>
+                                <span className="font-bold">{formatearFecha(asist.fecha_registro)} ({asist.horas_cumplidas} hrs)</span>
                                 <span
                                   className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
                                     asist.check_habilitado

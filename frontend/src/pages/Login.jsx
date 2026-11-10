@@ -24,7 +24,7 @@ export default function Login() {
 
     setEnviando(true)
     try {
-      const user = await login(email, password)
+      const user = await login(email.trim().toLowerCase(), password)
       const rol = user.rol?.toLowerCase()
       if (rol === 'admin') navigate('/admin/dashboard')
       else if (rol === 'empresario') navigate('/empresario/dashboard')

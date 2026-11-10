@@ -30,7 +30,7 @@ class FormatoAsistencia extends Model
         return [
             'check_habilitado'    => 'boolean',
             'check_docente'       => 'boolean',
-            'fecha_registro'      => 'date',
+            'fecha_registro'      => 'date:Y-m-d',
             'fecha_firma'         => 'datetime',
             'fecha_firma_docente' => 'datetime',
         ];

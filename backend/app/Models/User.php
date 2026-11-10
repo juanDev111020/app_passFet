@@ -27,6 +27,11 @@ class User extends Authenticatable
         ];
     }
 
+    public function setEmailAttribute($value): void
+    {
+        $this->attributes['email'] = strtolower(trim((string) $value));
+    }
+
     public function estudiante()
     {
         return $this->hasOne(Estudiante::class);

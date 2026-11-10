@@ -130,3 +130,17 @@ export const obtenerReglaCampo = (tipo, valor, errorServidor = null, tocado = fa
       return null
   }
 }
+
+/**
+ * Convierte fechas del backend (ej. "2026-11-09T00:00:00.000000Z" o "2026-11-09") a formato legible dd/mm/yyyy
+ */
+export const formatearFecha = (fecha) => {
+  if (!fecha) return ''
+  const limpia = String(fecha).split('T')[0].trim()
+  const partes = limpia.split('-')
+  if (partes.length === 3) {
+    const [y, m, d] = partes
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`
+  }
+  return limpia
+}

@@ -12,6 +12,7 @@ import {
   filtrarPassword,
   obtenerReglaCampo,
   normalizarError,
+  formatearFecha,
 } from '../utils/validationHelper'
 
 export default function DashboardAdmin() {
@@ -336,7 +337,7 @@ export default function DashboardAdmin() {
     <div className="min-h-screen bg-[#f4f7f5] text-slate-800 flex flex-col font-sans selection:bg-[#08940c] selection:text-white">
       {/* Toast Notificación */}
       {notificacion && (
-        <div className="fixed bottom-5 right-5 z-50 animate-bounce">
+        <div className="fixed bottom-5 right-5 z-[9999] animate-bounce">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 border ${
               notificacion.tipo === 'exito'
@@ -1215,7 +1216,7 @@ export default function DashboardAdmin() {
                                 <tr key={asist.id} className="hover:bg-[#f8faf9] transition-colors">
                                   <td className="py-2.5 px-3 whitespace-nowrap">
                                     <span className="font-bold block">{asist.semana || 'Sesión'}</span>
-                                    <span className="text-[10px] text-[#5f6b64]">{asist.fecha_registro}</span>
+                                    <span className="text-[10px] text-[#5f6b64]">{formatearFecha(asist.fecha_registro)}</span>
                                   </td>
                                   <td className="py-2.5 px-3 font-mono font-bold text-[#067a0a]">{asist.horas_cumplidas} hrs</td>
                                   <td className="py-2.5 px-3 max-w-xs">
@@ -1299,7 +1300,7 @@ export default function DashboardAdmin() {
 
             <div className="space-y-3.5 bg-[#f8faf9] p-4 rounded-2xl border border-[#dfe6e1] text-xs">
               <div className="grid grid-cols-2 gap-2">
-                <p><span className="font-bold text-[#14201a]">Semana/Fecha:</span> {asistenciaSeleccionada.semana || 'Sesión'} · {asistenciaSeleccionada.fecha_registro}</p>
+                <p><span className="font-bold text-[#14201a]">Semana/Fecha:</span> {asistenciaSeleccionada.semana || 'Sesión'} · {formatearFecha(asistenciaSeleccionada.fecha_registro)}</p>
                 <p><span className="font-bold text-[#14201a]">Horas reportadas:</span> {asistenciaSeleccionada.horas_cumplidas} hrs</p>
               </div>
               <div>
