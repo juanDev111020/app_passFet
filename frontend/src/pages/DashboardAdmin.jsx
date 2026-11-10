@@ -106,6 +106,15 @@ export default function DashboardAdmin() {
             : e
         )
       )
+      setResultadoBusqueda((prev) => {
+        if (prev && (prev.id === estudiante.id || prev.user?.id === estudiante.user?.id)) {
+          return {
+            ...prev,
+            pase: { ...prev.pase, estado: res.data.estado, ultimo_cambio_estado: res.data.ultimo_cambio_estado },
+          }
+        }
+        return prev
+      })
     } catch (err) {
       const msg = err.response?.data?.message || 'No se pudo cambiar el estado del pase.'
       mostrarNotificacion(msg, 'error')
@@ -526,7 +535,8 @@ export default function DashboardAdmin() {
 
             {/* Resultado de Búsqueda */}
             {resultadoBusqueda && (() => {
-              const resActivo = (resultadoBusqueda.pase?.estado || (resultadoBusqueda.user?.activo ? 'Activo' : 'Bloqueado')).toLowerCase() === 'activo'
+              const resActivo = esPaseHabilitado(resultadoBusqueda.pase?.estado || (resultadoBusqueda.user?.activo ? 'habilitado' : 'inhabilitado'))
+              const estadoTexto = resActivo ? 'Pase Habilitado (Ingreso Permitido)' : 'Pase Inhabilitado (Restringido)'
               return (
                 <div
                   className={`mt-5 p-5 rounded-2xl border transition-all ${
@@ -561,8 +571,20 @@ export default function DashboardAdmin() {
                             resActivo ? 'bg-[#08940c] animate-pulse' : 'bg-red-500'
                           }`}
                         />
-                        <span>{resActivo ? 'Pase Activo (Permitido)' : 'Pase Bloqueado (Restringido)'}</span>
+                        <span>{estadoTexto}</span>
                       </div>
+
+                      <button
+                        onClick={() => handleTogglePase(resultadoBusqueda)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                          resActivo
+                            ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-[#e8f8ea] hover:bg-[#d5f3d8] text-[#067a0a] border-[#08940c]/40'
+                        }`}
+                        title={resActivo ? 'Inhabilitar pasante (Regla 24h)' : 'Habilitar pasante'}
+                      >
+                        {resActivo ? 'Inhabilitar' : 'Habilitar'}
+                      </button>
 
                       <button
                         onClick={() => setResultadoBusqueda(null)}

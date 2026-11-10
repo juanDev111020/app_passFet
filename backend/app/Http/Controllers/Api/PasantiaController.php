@@ -226,6 +226,7 @@ class PasantiaController extends Controller
         $user = $request->user();
         $pasantia = Pasantia::with([
             'estudiante.user',
+            'estudiante.pase',
             'estudiante.programa',
             'empresario.user',
             'formatosAsistencia' => fn ($q) => $q->orderBy('fecha_registro', 'asc'),
@@ -273,7 +274,8 @@ class PasantiaController extends Controller
         // Firma docente FET / Admin institucional
         $firmaDocenteBase64 = null;
         $adminConFirma = User::where('rol', 'admin')->whereNotNull('firma_digital')->first();
-        $docenteNombre = $adminConFirma ? ($adminConFirma->nombres . ' ' . $adminConFirma->apellidos) : 'JUAN GABRIEL CARVAJAL VEGA';
+        $adminDocente = $adminConFirma ?: User::where('rol', 'admin')->first();
+        $docenteNombre = $adminDocente ? trim($adminDocente->nombres . ' ' . $adminDocente->apellidos) : 'Docente Tutor FET';
 
         $docenteFirmaUrl = $asistencias->whereNotNull('firma_docente_url')->value('firma_docente_url')
             ?? optional($adminConFirma)->firma_digital;
@@ -284,6 +286,8 @@ class PasantiaController extends Controller
                 $firmaDocenteBase64 = 'data:' . (mime_content_type($fPath) ?: 'image/png') . ';base64,' . base64_encode(file_get_contents($fPath));
             }
         }
+
+        $periodo = $estudiante->pase?->periodo_academico ?? '2026-2';
 
         $pdf = Pdf::loadView('documentos.formato_asistencia', [
             'pasantia'               => $pasantia,
@@ -296,7 +300,7 @@ class PasantiaController extends Controller
             'firmaEmpresarioBase64'  => $firmaEmpresarioBase64,
             'firmaDocenteBase64'     => $firmaDocenteBase64,
             'docenteNombre'          => $docenteNombre,
-            'periodo'                => '2026-1',
+            'periodo'                => $periodo,
         ])->setPaper('letter', 'portrait');
 
         $nombreArchivo = 'formato_asistencia_' . $estudiante->user->numero_documento . '.pdf';

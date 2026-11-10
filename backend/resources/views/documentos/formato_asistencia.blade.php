@@ -213,9 +213,9 @@
 <table class="info-table">
     <tr>
         <td class="info-label">Nombre de la Empresa</td>
-        <td class="info-val"><strong>{{ $empresario->razon_social ?? optional($empresario->user)->nombres }}</strong></td>
+        <td class="info-val"><strong>{{ $empresario->empresa ?? ($empresario->razon_social ?? 'Empresa Vinculada') }}</strong></td>
         <td class="info-label">Periodo Académico</td>
-        <td class="info-val"><strong>{{ $periodo ?? '2026-1' }}</strong></td>
+        <td class="info-val"><strong>{{ $periodo ?? ($estudiante->pase?->periodo_academico ?? '2026-2') }}</strong></td>
     </tr>
     <tr>
         <td class="info-label">Nombre del Estudiante</td>
@@ -310,8 +310,8 @@
             </div>
             <div class="linea-firma">
                 <strong>{{ $empresario->user->nombres }} {{ $empresario->user->apellidos }}</strong><br>
-                <span>{{ $empresario->cargo_contacto ?: 'Tutor Empresarial' }}</span>
-                <div class="cargo">{{ $empresario->razon_social }}</div>
+                <span>{{ $empresario->cargo ?: ($empresario->cargo_contacto ?: 'Tutor Empresarial') }}</span>
+                <div class="cargo">{{ $empresario->empresa ?? ($empresario->razon_social ?? '') }}</div>
             </div>
         </td>
         <td>
@@ -321,7 +321,7 @@
                 @endif
             </div>
             <div class="linea-firma">
-                <strong>{{ $docenteNombre ?? 'JUAN GABRIEL CARVAJAL VEGA' }}</strong><br>
+                <strong>{{ $docenteNombre ?? 'Docente Tutor FET' }}</strong><br>
                 <span>Docente Asesor / Tutor FET</span>
                 <div class="cargo">Fundación Escuela Tecnológica</div>
             </div>
