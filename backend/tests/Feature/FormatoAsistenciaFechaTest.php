@@ -79,3 +79,4 @@ class FormatoAsistenciaFechaTest extends TestCase
         $this->assertStringNotContainsString('T00:00:00', $array['fecha_registro']);
     }
 }
+

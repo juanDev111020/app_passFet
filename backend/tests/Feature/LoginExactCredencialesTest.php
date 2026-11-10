@@ -6,11 +6,11 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
-class LoginCaseInsensitiveTest extends TestCase
+class LoginExactCredencialesTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_login_ignora_mayusculas_en_correo(): void
+    public function test_login_rechaza_credenciales_en_mayuscula_si_fueron_registradas_en_minuscula(): void
     {
         $unique = (string) rand(10000, 99999);
         $email = 'admin_' . $unique . '@passfet.edu.co';
@@ -25,15 +25,23 @@ class LoginCaseInsensitiveTest extends TestCase
             'activo'           => true,
         ]);
 
-        // Probar login con mayúsculas y mezclas (ej. ADMIN_12345@PassFet.EDU.co)
+        // 1. Probar login con mayúsculas: debe ser rechazado con 401
         $emailMayus = strtoupper($email);
-        $response = $this->postJson('/api/auth/login', [
+        $responseError = $this->postJson('/api/auth/login', [
             'email'    => $emailMayus,
             'password' => 'Admin123*',
         ]);
 
-        $response->assertStatus(200);
-        $response->assertJsonStructure(['token', 'user']);
-        $this->assertEquals(strtolower($email), strtolower($response->json('user.email')));
+        $responseError->assertStatus(401);
+        $responseError->assertJson(['message' => 'Credenciales incorrectas.']);
+
+        // 2. Probar login con minúsculas exactas: debe ser exitoso (200)
+        $responseOk = $this->postJson('/api/auth/login', [
+            'email'    => $email,
+            'password' => 'Admin123*',
+        ]);
+
+        $responseOk->assertStatus(200);
+        $responseOk->assertJsonStructure(['token', 'user']);
     }
 }

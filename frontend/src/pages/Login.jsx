@@ -24,7 +24,7 @@ export default function Login() {
 
     setEnviando(true)
     try {
-      const user = await login(email.trim().toLowerCase(), password)
+      const user = await login(email.trim(), password)
       const rol = user.rol?.toLowerCase()
       if (rol === 'admin') navigate('/admin/dashboard')
       else if (rol === 'empresario') navigate('/empresario/dashboard')
@@ -95,7 +95,7 @@ export default function Login() {
                 placeholder="usuario@passfet.edu.co"
               />
             </div>
-            <ReglaInput mensaje={focoCampo === 'email' || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? 'Debe ser un correo válido institucional.' : null} />
+            <ReglaInput mensaje={email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 'Debe ser un correo válido institucional.' : null} />
           </label>
 
           <label className="campo">

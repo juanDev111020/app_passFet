@@ -23,10 +23,11 @@ class AuthController extends Controller
             'password.max'      => 'La contraseña no puede superar 20 caracteres.',
         ]);
 
-        $email = strtolower(trim((string) $request->email));
-        $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
+        $emailIngresado = trim((string) $request->email);
+        $user = User::where('email', $emailIngresado)->first();
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        // Validación estricta: las credenciales deben coincidir exactamente (sensible a mayúsculas/minúsculas)
+        if (! $user || $user->email !== $emailIngresado || ! Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'Credenciales incorrectas.'], 401);
         }
 
